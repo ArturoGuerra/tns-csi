@@ -21,7 +21,7 @@ spec:
         # TNS CSI Node Plugin
         - name: tns-csi-plugin
           image: tns-csi-driver:test
-          imagePullPolicy: Never
+          imagePullPolicy: IfNotPresent
           args:
             - "--endpoint=unix:///csi/csi.sock"
             - "--node-id=$(NODE_ID)"
@@ -69,6 +69,7 @@ spec:
         # CSI Node Driver Registrar sidecar
         - name: csi-node-driver-registrar
           image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.9.2
+          imagePullPolicy: Always
           args:
             - "--csi-address=$(ADDRESS)"
             - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"

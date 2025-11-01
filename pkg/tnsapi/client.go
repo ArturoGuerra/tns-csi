@@ -166,6 +166,78 @@ func (c *Client) authenticate() error {
 	return nil
 }
 
+// authenticateDirect performs API key authentication by directly reading from WebSocket
+// This is used during reconnection when readLoop is blocked and can't handle responses
+func (c *Client) authenticateDirect() error {
+	klog.V(4).Info("Authenticating with storage system using auth.login_with_api_key (direct mode)")
+
+	c.mu.Lock()
+
+	// Generate request ID
+	id := fmt.Sprintf("%d", atomic.AddUint64(&c.reqID, 1))
+
+	// Create authentication request
+	req := &Request{
+		ID:      id,
+		JSONRPC: "2.0",
+		Method:  "auth.login_with_api_key",
+		Params:  []interface{}{c.apiKey},
+	}
+
+	// Send request
+	klog.V(5).Infof("Sending request: %+v", req)
+	if err := c.conn.WriteJSON(req); err != nil {
+		c.mu.Unlock()
+		return fmt.Errorf("failed to send authentication request: %w", err)
+	}
+
+	// Set read deadline for authentication response
+	c.conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	c.mu.Unlock()
+
+	// Read response directly (don't use readLoop)
+	_, rawMsg, err := c.conn.ReadMessage()
+	if err != nil {
+		return fmt.Errorf("failed to read authentication response: %w", err)
+	}
+
+	klog.V(5).Infof("Received raw response: %s", string(rawMsg))
+
+	// Parse response
+	var resp Response
+	if err := json.Unmarshal(rawMsg, &resp); err != nil {
+		return fmt.Errorf("failed to unmarshal authentication response: %w", err)
+	}
+
+	klog.V(5).Infof("Parsed response: %+v", resp)
+
+	// Check for errors
+	if resp.Error != nil {
+		return fmt.Errorf("authentication error: %v", resp.Error)
+	}
+
+	// Verify response ID matches
+	if resp.ID != id {
+		return fmt.Errorf("authentication response ID mismatch: expected %s, got %s", id, resp.ID)
+	}
+
+	// Parse auth result
+	var authResult bool
+	if resp.Result != nil {
+		if err := json.Unmarshal(resp.Result, &authResult); err != nil {
+			return fmt.Errorf("failed to unmarshal authentication result: %w", err)
+		}
+	}
+
+	if !authResult {
+		klog.Errorf("Storage system rejected API key (length: %d, prefix: %s...)", len(c.apiKey), c.apiKey[:min(10, len(c.apiKey))])
+		return fmt.Errorf("authentication failed: Storage system rejected API key - verify key is correct and not revoked in System Settings -> API Keys")
+	}
+
+	klog.V(4).Info("Successfully authenticated with storage system (direct mode)")
+	return nil
+}
+
 // Call makes a JSON-RPC 2.0 call
 func (c *Client) Call(ctx context.Context, method string, params []interface{}, result interface{}) error {
 	c.mu.Lock()
@@ -239,11 +311,11 @@ func (c *Client) readLoop() {
 
 	for {
 		// Set read deadline to detect dead connections
-		// Since we send pings every 30s, use 120s timeout (4x ping interval)
+		// Since we send pings every 20s, use 40s timeout (2x ping interval)
 		// This gets reset every time we receive a message (response to our requests)
 		c.mu.Lock()
 		if c.conn != nil {
-			c.conn.SetReadDeadline(time.Now().Add(120 * time.Second))
+			c.conn.SetReadDeadline(time.Now().Add(40 * time.Second))
 		}
 		c.mu.Unlock()
 
@@ -278,7 +350,8 @@ func (c *Client) readLoop() {
 				continue // Go back to top of loop, will retry reinitialization
 			}
 
-			if err := c.authenticate(); err != nil {
+			// Use direct authentication since readLoop is still blocked here
+			if err := c.authenticateDirect(); err != nil {
 				klog.Errorf("Re-authentication after reinitialization failed: %v, will retry", err)
 				continue // Go back to top of loop, will retry reinitialization
 			}
@@ -354,8 +427,8 @@ func (c *Client) reconnect() bool {
 			continue
 		}
 
-		// Re-authenticate
-		if err := c.authenticate(); err != nil {
+		// Re-authenticate using direct read (since readLoop is blocked here)
+		if err := c.authenticateDirect(); err != nil {
 			klog.Errorf("Re-authentication attempt %d failed: %v", attempt, err)
 			continue
 		}
@@ -369,7 +442,7 @@ func (c *Client) reconnect() bool {
 
 // pingLoop sends periodic pings to keep the connection alive and detect failures
 func (c *Client) pingLoop() {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(20 * time.Second)
 	defer ticker.Stop()
 
 	for {
