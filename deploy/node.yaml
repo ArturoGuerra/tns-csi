@@ -20,7 +20,7 @@ spec:
       containers:
         # TNS CSI Node Plugin
         - name: tns-csi-plugin
-          image: fenio/tns-csi:latest
+          image: bfenski/tns-csi:v0.0.1
           imagePullPolicy: IfNotPresent
           args:
             - "--endpoint=unix:///csi/csi.sock"

@@ -14,6 +14,19 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// APIClient defines the interface for TrueNAS API operations.
+type APIClient interface {
+	CreateDataset(ctx context.Context, params tnsapi.DatasetCreateParams) (*tnsapi.Dataset, error)
+	DeleteDataset(ctx context.Context, datasetID string) error
+	CreateNFSShare(ctx context.Context, params tnsapi.NFSShareCreateParams) (*tnsapi.NFSShare, error)
+	DeleteNFSShare(ctx context.Context, shareID int) error
+	CreateZvol(ctx context.Context, params tnsapi.ZvolCreateParams) (*tnsapi.Dataset, error)
+	CreateNVMeOFSubsystem(ctx context.Context, params tnsapi.NVMeOFSubsystemCreateParams) (*tnsapi.NVMeOFSubsystem, error)
+	DeleteNVMeOFSubsystem(ctx context.Context, subsystemID int) error
+	CreateNVMeOFNamespace(ctx context.Context, params tnsapi.NVMeOFNamespaceCreateParams) (*tnsapi.NVMeOFNamespace, error)
+	DeleteNVMeOFNamespace(ctx context.Context, namespaceID int) error
+}
+
 // VolumeMetadata contains information needed to manage a volume.
 type VolumeMetadata struct {
 	Name              string `json:"name"`
@@ -76,11 +89,11 @@ func isEncodedVolumeID(volumeID string) bool {
 // ControllerService implements the CSI Controller service.
 type ControllerService struct {
 	csi.UnimplementedControllerServer
-	apiClient *tnsapi.Client
+	apiClient APIClient
 }
 
 // NewControllerService creates a new controller service.
-func NewControllerService(apiClient *tnsapi.Client) *ControllerService {
+func NewControllerService(apiClient APIClient) *ControllerService {
 	return &ControllerService{
 		apiClient: apiClient,
 	}

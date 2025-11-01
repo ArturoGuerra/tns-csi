@@ -73,7 +73,7 @@ cd /Users/bfenski/tns-csi
 
 # Replace 'yourusername' with your Docker Hub username
 export REGISTRY_USER="yourusername"
-export IMAGE_TAG="v0.1.0"
+export IMAGE_TAG="v0.0.1"
 
 # Build the image
 docker build -t ${REGISTRY_USER}/tns-csi-driver:${IMAGE_TAG} .
@@ -94,7 +94,7 @@ cd /Users/bfenski/tns-csi
 
 # Replace 'yourusername' with your GitHub username
 export GITHUB_USER="yourusername"
-export IMAGE_TAG="v0.1.0"
+export IMAGE_TAG="v0.0.1"
 
 # Build the image
 docker build -t ghcr.io/${GITHUB_USER}/tns-csi-driver:${IMAGE_TAG} .

@@ -12,7 +12,7 @@ version: 0.1.0
 # This is the version number of the application being deployed. This version number should be
 # incremented each time you make changes to the application. Versions are not expected to
 # follow Semantic Versioning. They should reflect the version the application is using.
-appVersion: "v0.1.0"
+appVersion: "v0.0.1"
 
 keywords:
   - storage
@@ -21,12 +21,12 @@ keywords:
   - nfs
   - nvmeof
 
-home: https://github.com/fenio/tns-csi
+home: https://github.com/bfenski/tns-csi
 sources:
-  - https://github.com/fenio/tns-csi
+  - https://github.com/bfenski/tns-csi
 
 maintainers:
   - name: TrueNAS CSI Driver Contributors
-    url: https://github.com/fenio/tns-csi
+    url: https://github.com/bfenski/tns-csi
 
 icon: https://www.truenas.com/wp-content/uploads/2023/01/TrueNAS_Open_Storage.png

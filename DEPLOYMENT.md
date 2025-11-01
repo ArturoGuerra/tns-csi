@@ -83,14 +83,14 @@ If you plan to use NVMe-oF storage:
 make build
 
 # Build Docker image
-docker build -t your-registry/tns-csi-driver:v0.1.0 .
+docker build -t your-registry/tns-csi-driver:v0.0.1 .
 ```
 
 ### 2.2 Push to Container Registry
 
 ```bash
 # Push to your registry (DockerHub, GitHub Container Registry, etc.)
-docker push your-registry/tns-csi-driver:v0.1.0
+docker push your-registry/tns-csi-driver:v0.0.1
 ```
 
 If using a private registry, ensure your Kubernetes cluster has pull access.
@@ -120,7 +120,7 @@ image: your-registry/tns-csi-driver:latest
 
 With:
 ```yaml
-image: your-registry/tns-csi-driver:v0.1.0
+image: your-registry/tns-csi-driver:v0.0.1
 ```
 
 ### 3.3 Update StorageClass

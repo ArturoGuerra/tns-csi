@@ -179,8 +179,8 @@ helm install tns-csi ./charts/tns-csi-driver \
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `image.repository` | CSI driver image repository | `fenio/tns-csi` |
-| `image.tag` | Image tag | `latest` |
+| `image.repository` | CSI driver image repository | `bfenski/tns-csi` |
+| `image.tag` | Image tag | `v0.0.1` |
 | `image.pullPolicy` | Image pull policy | `Always` |
 
 ## Usage
@@ -364,9 +364,9 @@ helm package charts/tns-csi-driver
 
 ## Support
 
-- **Issues**: https://github.com/fenio/tns-csi/issues
-- **Discussions**: https://github.com/fenio/tns-csi/discussions
-- **Documentation**: https://github.com/fenio/tns-csi
+- **Issues**: https://github.com/bfenski/tns-csi/issues
+- **Discussions**: https://github.com/bfenski/tns-csi/discussions
+- **Documentation**: https://github.com/bfenski/tns-csi
 
 ## License
 

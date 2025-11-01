@@ -21,7 +21,7 @@ spec:
       containers:
         # TNS CSI Controller
         - name: tns-csi-plugin
-          image: fenio/tns-csi:latest
+          image: bfenski/tns-csi:v0.0.1
           imagePullPolicy: IfNotPresent
           args:
             - "--endpoint=unix:///var/lib/csi/sockets/pluginproxy/csi.sock"
