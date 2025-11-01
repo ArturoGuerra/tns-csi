@@ -46,14 +46,23 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed installation and configuration i
 
 ### Installation via Helm (Recommended)
 
-The easiest way to install the TNS CSI Driver is using Helm:
+The easiest way to install the TNS CSI Driver is using Helm. The chart is available on Docker Hub as an OCI artifact:
 
 ```bash
-# Add the Helm repository (coming soon)
-# helm repo add tns-csi https://fenio.github.io/tns-csi
-# helm repo update
+# Install from OCI registry (Docker Hub)
+helm install tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
+  --version 0.1.0 \
+  --namespace kube-system \
+  --create-namespace \
+  --set truenas.url="wss://YOUR-TRUENAS-IP:1443/api/current" \
+  --set truenas.apiKey="YOUR-API-KEY" \
+  --set storageClasses.nfs.enabled=true \
+  --set storageClasses.nfs.pool="YOUR-POOL-NAME" \
+  --set storageClasses.nfs.server="YOUR-TRUENAS-IP"
+```
 
-# Install from local chart
+Or install from local chart:
+```bash
 helm install tns-csi ./charts/tns-csi-driver -n kube-system \
   --set truenas.url="wss://YOUR-TRUENAS-IP:1443/api/current" \
   --set truenas.apiKey="YOUR-API-KEY" \
@@ -64,10 +73,14 @@ helm install tns-csi ./charts/tns-csi-driver -n kube-system \
 
 **Example NFS-only deployment:**
 ```bash
-helm install tns-csi ./charts/tns-csi-driver -n kube-system \
-  --values charts/tns-csi-driver/values-nfs.yaml \
+helm install tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
+  --version 0.1.0 \
+  --namespace kube-system \
+  --create-namespace \
   --set truenas.url="wss://YOUR-TRUENAS-IP:1443/api/current" \
   --set truenas.apiKey="your-api-key-here" \
+  --set storageClasses.nfs.enabled=true \
+  --set storageClasses.nfs.pool="YOUR-POOL-NAME" \
   --set storageClasses.nfs.server="YOUR-TRUENAS-IP"
 ```
 

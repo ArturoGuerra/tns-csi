@@ -74,9 +74,39 @@ If you plan to use NVMe-oF storage:
    - Set the port (default: 4420 for TCP)
 5. Click **Save** and verify the service is running
 
-## Step 2: Build and Push Docker Image
+## Step 2: Install Using Helm (Recommended)
 
-### 2.1 Build the Docker Image
+The easiest way to deploy the CSI driver is using the Helm chart from Docker Hub:
+
+```bash
+helm install tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
+  --version 0.1.0 \
+  --namespace kube-system \
+  --create-namespace \
+  --set truenas.url="wss://YOUR-TRUENAS-IP:1443/api/current" \
+  --set truenas.apiKey="YOUR-API-KEY" \
+  --set storageClasses.nfs.enabled=true \
+  --set storageClasses.nfs.pool="YOUR-POOL-NAME" \
+  --set storageClasses.nfs.server="YOUR-TRUENAS-IP"
+```
+
+This single command will:
+- Create the kube-system namespace if needed
+- Deploy the CSI controller and node components
+- Configure TrueNAS connection
+- Create the storage class
+
+See the [Helm chart README](charts/tns-csi-driver/README.md) for advanced configuration options.
+
+**Skip to Step 5 if using Helm installation.**
+
+---
+
+## Alternative: Manual Deployment with kubectl
+
+### Step 2a: Build and Push Docker Image (Optional)
+
+If you want to build your own image instead of using the published one:
 
 ```bash
 # From the project root directory
@@ -84,18 +114,16 @@ make build
 
 # Build Docker image
 docker build -t your-registry/tns-csi-driver:v0.0.1 .
-```
 
-### 2.2 Push to Container Registry
-
-```bash
 # Push to your registry (DockerHub, GitHub Container Registry, etc.)
 docker push your-registry/tns-csi-driver:v0.0.1
 ```
 
 If using a private registry, ensure your Kubernetes cluster has pull access.
 
-## Step 3: Configure Deployment Manifests
+The published image is available at: `bfenski/tns-csi:v0.0.1`
+
+## Step 3: Configure Deployment Manifests (Manual Deployment Only)
 
 ### 3.1 Update Secret
 
@@ -149,7 +177,7 @@ parameters:
 
 Note: NVMe-oF volumes use `ReadWriteOnce` access mode (block storage), while NFS uses `ReadWriteMany` (shared filesystem).
 
-## Step 4: Deploy to Kubernetes
+## Step 4: Deploy to Kubernetes (Manual Deployment Only)
 
 ### 4.1 Deploy CSI Driver
 
@@ -199,7 +227,25 @@ tns-csi-node-xxxxx            2/2     Running   0          1m
 tns-csi-node-yyyyy            2/2     Running   0          1m
 ```
 
-## Step 5: Test the Driver
+## Step 5: Verify Installation
+
+Whether you used Helm or manual deployment, verify everything is working:
+
+```bash
+# Check controller pod
+kubectl get pods -n kube-system -l app.kubernetes.io/name=tns-csi-driver
+
+# Check CSIDriver
+kubectl get csidrivers
+
+# Check StorageClass
+kubectl get storageclass
+```
+
+For Helm installations, the storage class name will be `truenas-nfs` (or as configured).
+For manual installations, it will be as defined in your `storageclass.yaml`.
+
+## Step 6: Test the Driver
 
 ### 5.1 Create Test PVC
 

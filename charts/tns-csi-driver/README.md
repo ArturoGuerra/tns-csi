@@ -21,10 +21,13 @@ A Container Storage Interface (CSI) driver for TrueNAS that enables dynamic prov
 
 ## Installation
 
-### Quick Start - NFS
+### Quick Start - NFS (Using OCI Registry)
 
 ```bash
-helm install tns-csi ./charts/tns-csi-driver -n kube-system \
+helm install tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
+  --version 0.1.0 \
+  --namespace kube-system \
+  --create-namespace \
   --set truenas.url="wss://YOUR-TRUENAS-IP:1443/api/current" \
   --set truenas.apiKey="YOUR-API-KEY" \
   --set storageClasses.nfs.enabled=true \
@@ -36,6 +39,19 @@ Replace:
 - `YOUR-TRUENAS-IP` - TrueNAS server IP address
 - `YOUR-API-KEY` - API key from TrueNAS (Settings > API Keys)
 - `YOUR-POOL-NAME` - ZFS pool name (e.g., `tank`, `storage`)
+
+### Installation from Local Chart
+
+If you've cloned the repository, you can install from the local chart:
+
+```bash
+helm install tns-csi ./charts/tns-csi-driver -n kube-system \
+  --set truenas.url="wss://YOUR-TRUENAS-IP:1443/api/current" \
+  --set truenas.apiKey="YOUR-API-KEY" \
+  --set storageClasses.nfs.enabled=true \
+  --set storageClasses.nfs.pool="YOUR-POOL-NAME" \
+  --set storageClasses.nfs.server="YOUR-TRUENAS-IP"
+```
 
 ### Installation with Values File
 
@@ -70,6 +86,15 @@ storageClasses:
 
 Install with:
 ```bash
+helm install tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
+  --version 0.1.0 \
+  --namespace kube-system \
+  --create-namespace \
+  --values my-values.yaml
+```
+
+Or from local chart:
+```bash
 helm install tns-csi ./charts/tns-csi-driver \
   --namespace kube-system \
   --values my-values.yaml
@@ -78,6 +103,21 @@ helm install tns-csi ./charts/tns-csi-driver \
 ### Example Configurations
 
 #### NFS Only (Recommended for most use cases)
+
+From OCI registry:
+```bash
+helm install tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
+  --version 0.1.0 \
+  --namespace kube-system \
+  --create-namespace \
+  --set truenas.url="wss://YOUR-TRUENAS-IP:1443/api/current" \
+  --set truenas.apiKey="your-api-key" \
+  --set storageClasses.nfs.enabled=true \
+  --set storageClasses.nfs.pool="YOUR-POOL-NAME" \
+  --set storageClasses.nfs.server="YOUR-TRUENAS-IP"
+```
+
+From local chart:
 ```bash
 helm install tns-csi ./charts/tns-csi-driver \
   --namespace kube-system \
@@ -88,6 +128,21 @@ helm install tns-csi ./charts/tns-csi-driver \
 ```
 
 #### NVMe-oF (Block storage, requires kernel modules)
+
+From OCI registry:
+```bash
+helm install tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
+  --version 0.1.0 \
+  --namespace kube-system \
+  --create-namespace \
+  --set truenas.url="wss://YOUR-TRUENAS-IP:1443/api/current" \
+  --set truenas.apiKey="your-api-key" \
+  --set storageClasses.nvmeof.enabled=true \
+  --set storageClasses.nvmeof.pool="YOUR-POOL-NAME" \
+  --set storageClasses.nvmeof.server="YOUR-TRUENAS-IP"
+```
+
+From local chart:
 ```bash
 helm install tns-csi ./charts/tns-csi-driver \
   --namespace kube-system \
@@ -233,10 +288,11 @@ The volume will be automatically resized on TrueNAS (if `allowVolumeExpansion: t
 
 ## Upgrading
 
-To upgrade the chart:
+To upgrade the chart from OCI registry:
 
 ```bash
-helm upgrade tns-csi ./charts/tns-csi-driver \
+helm upgrade tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
+  --version 0.1.0 \
   --namespace kube-system \
   --reuse-values
 ```
@@ -244,9 +300,18 @@ helm upgrade tns-csi ./charts/tns-csi-driver \
 Or with new values:
 
 ```bash
-helm upgrade tns-csi ./charts/tns-csi-driver \
+helm upgrade tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
+  --version 0.1.0 \
   --namespace kube-system \
   --values my-values.yaml
+```
+
+From local chart:
+
+```bash
+helm upgrade tns-csi ./charts/tns-csi-driver \
+  --namespace kube-system \
+  --reuse-values
 ```
 
 ## Uninstalling
@@ -356,10 +421,21 @@ helm install tns-csi charts/tns-csi-driver \
   --dry-run --debug
 ```
 
-### Package Chart
+### Package and Publish Chart
 
+Package the chart locally:
 ```bash
 helm package charts/tns-csi-driver
+```
+
+Push to OCI registry (Docker Hub):
+```bash
+helm push tns-csi-driver-0.1.0.tgz oci://registry-1.docker.io/bfenski
+```
+
+Pull chart from OCI registry:
+```bash
+helm pull oci://registry-1.docker.io/bfenski/tns-csi-driver --version 0.1.0
 ```
 
 ## Support
