@@ -1,0 +1,29 @@
+# Kind cluster configuration for TrueNAS CSI Driver testing
+# This config enables features needed for CSI driver testing
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: truenas-csi-test
+nodes:
+  - role: control-plane
+    # Mount host's /etc/nfs.conf if it exists (for NFS client config)
+    extraMounts:
+      - hostPath: /tmp/kind-nfs
+        containerPath: /tmp/kind-nfs
+    # Enable NFS kernel modules and install nfs-common
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+  - role: worker
+    extraMounts:
+      - hostPath: /tmp/kind-nfs
+        containerPath: /tmp/kind-nfs
+
+# Networking configuration
+networking:
+  # Allow pods to reach external TrueNAS server
+  disableDefaultCNI: false
+  podSubnet: "10.244.0.0/16"
+  serviceSubnet: "10.96.0.0/12"

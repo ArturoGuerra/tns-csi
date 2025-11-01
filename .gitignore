@@ -1,0 +1,23 @@
+# Credentials - NEVER commit these files
+.tns-credentials
+*.local.yaml
+*.local.yml
+secret.local.*
+
+# Test binary, built with `go test -c`
+*.test
+bin/
+*.out
+
+vendor/
+
+go.work
+
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
