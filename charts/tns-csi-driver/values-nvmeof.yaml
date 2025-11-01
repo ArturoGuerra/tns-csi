@@ -4,7 +4,7 @@
 
 truenas:
   # Your TrueNAS server configuration
-  host: "10.10.20.100"
+  host: "YOUR-TRUENAS-IP"
   port: 1443
   apiKey: "your-api-key-here"
   allowInsecure: true
@@ -23,7 +23,7 @@ storageClasses:
       # NVMe-oF specific parameters
       transport: "tcp"
       # Optional: specify portal IP if different from truenas.host
-      # portal: "10.10.20.100"
+      # portal: "YOUR-TRUENAS-IP"
 
 # Optional: Also include NFS for mixed workloads
   - name: truenas-nfs

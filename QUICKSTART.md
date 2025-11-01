@@ -27,7 +27,7 @@ metadata:
   namespace: kube-system
 type: Opaque
 stringData:
-  server: "10.10.20.100"      # Your TrueNAS IP
+  server: "YOUR-TRUENAS-IP"      # Your TrueNAS IP
   port: "1443"                 # TrueNAS API port
   apiKey: "your-api-key-here"  # Your API key
 ```
@@ -57,7 +57,7 @@ provisioner: tns.csi.io
 parameters:
   protocol: "nfs"              # "nfs" or "nvmeof"
   pool: "storage"              # Your TrueNAS pool name
-  server: "10.10.20.100"       # TrueNAS NFS server IP
+  server: "YOUR-TRUENAS-IP"       # TrueNAS NFS server IP
 volumeBindingMode: Immediate
 allowVolumeExpansion: true
 reclaimPolicy: Delete

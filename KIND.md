@@ -17,7 +17,7 @@ Create or edit `.tns-credentials` in the project root:
 
 ```bash
 # TrueNAS API Credentials
-TRUENAS_URL=wss://10.10.20.100:1443/api/current
+TRUENAS_URL=wss://YOUR-TRUENAS-IP:1443/api/current
 TRUENAS_API_KEY=your-api-key-here
 ```
 
@@ -140,7 +140,7 @@ If pods fail to mount NFS volumes:
    # From a pod in the cluster
    kubectl run -it --rm debug --image=alpine --restart=Never -- sh
    apk add nfs-utils
-   showmount -e 10.10.20.100  # Replace with your TrueNAS IP
+   showmount -e YOUR-TRUENAS-IP  # Replace with your TrueNAS IP
    ```
 
 3. **Check TrueNAS NFS service:**
@@ -270,7 +270,7 @@ kind delete cluster --name truenas-csi-test
 Kind containers run in Docker's network. Ensure Kind can reach your TrueNAS server:
 
 1. **If TrueNAS is on your local network:**
-   - Use the actual IP address (e.g., 10.10.20.100)
+   - Use the actual IP address (e.g., YOUR-TRUENAS-IP)
    - Docker should be able to route to it
 
 2. **If TrueNAS is on localhost:**
@@ -281,8 +281,8 @@ Kind containers run in Docker's network. Ensure Kind can reach your TrueNAS serv
    ```bash
    kubectl run -it --rm test --image=alpine --restart=Never -- sh
    # Inside the pod:
-   ping -c 3 10.10.20.100
-   nc -zv 10.10.20.100 2049  # Test NFS port
+   ping -c 3 YOUR-TRUENAS-IP
+   nc -zv YOUR-TRUENAS-IP 2049  # Test NFS port
    ```
 
 ## Performance Notes

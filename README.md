@@ -66,9 +66,9 @@ helm install tns-csi ./charts/tns-csi-driver -n kube-system \
 ```bash
 helm install tns-csi ./charts/tns-csi-driver -n kube-system \
   --values charts/tns-csi-driver/values-nfs.yaml \
-  --set truenas.url="wss://10.10.20.100:1443/api/current" \
+  --set truenas.url="wss://YOUR-TRUENAS-IP:1443/api/current" \
   --set truenas.apiKey="your-api-key-here" \
-  --set storageClasses.nfs.server="10.10.20.100"
+  --set storageClasses.nfs.server="YOUR-TRUENAS-IP"
 ```
 
 See the [Helm chart README](charts/tns-csi-driver/README.md) for detailed configuration options.
@@ -111,7 +111,7 @@ The driver is configured via command-line flags and Kubernetes secrets:
 - `--endpoint` - CSI endpoint (default: `unix:///var/lib/kubelet/plugins/tns.csi.io/csi.sock`)
 - `--node-id` - Node identifier (typically the node name)
 - `--driver-name` - CSI driver name (default: `tns.csi.io`)
-- `--api-url` - TrueNAS API URL (e.g., `ws://10.10.20.100/api/v2.0/websocket`)
+- `--api-url` - TrueNAS API URL (e.g., `ws://YOUR-TRUENAS-IP/api/v2.0/websocket`)
 - `--api-key` - TrueNAS API key
 
 ### Storage Class Parameters
@@ -120,7 +120,7 @@ The driver is configured via command-line flags and Kubernetes secrets:
 ```yaml
 parameters:
   protocol: nfs
-  server: 10.10.20.100
+  server: YOUR-TRUENAS-IP
   pool: tank
   path: /mnt/tank/k8s
 ```
@@ -129,7 +129,7 @@ parameters:
 ```yaml
 parameters:
   protocol: nvmeof
-  server: 10.10.20.100
+  server: YOUR-TRUENAS-IP
   pool: tank
   path: /mnt/tank/k8s/nvmeof
   fsType: ext4  # or xfs

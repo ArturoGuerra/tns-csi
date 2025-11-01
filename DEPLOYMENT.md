@@ -104,7 +104,7 @@ Edit `deploy/secret.yaml` and replace placeholders:
 ```yaml
 stringData:
   # WebSocket URL (use ws:// for HTTP or wss:// for HTTPS)
-  url: "ws://10.10.20.100/websocket"
+  url: "ws://YOUR-TRUENAS-IP/websocket"
   # API key from Step 1.1
   api-key: "1-abcdef123456789..."
 ```
@@ -133,7 +133,7 @@ parameters:
   protocol: "nfs"
   pool: "pool1"              # Your TrueNAS pool name
   # parentDataset: "pool1/k8s"  # Optional parent dataset
-  server: "10.10.20.100"     # Your TrueNAS IP/hostname
+  server: "YOUR-TRUENAS-IP"     # Your TrueNAS IP/hostname
 ```
 
 **For NVMe-oF:**
@@ -141,7 +141,7 @@ parameters:
 parameters:
   protocol: "nvmeof"
   pool: "storage"            # Your TrueNAS pool name
-  server: "10.10.20.100"     # Your TrueNAS IP/hostname
+  server: "YOUR-TRUENAS-IP"     # Your TrueNAS IP/hostname
   # Optional parameters:
   # filesystem: "ext4"       # Filesystem type: ext4 (default), ext3, or xfs
   # blocksize: "16K"         # Block size for ZVOL (default: 16K)
@@ -300,7 +300,7 @@ kubectl logs -n kube-system tns-csi-node-xxxxx -c tns-csi-plugin
 
 3. **Authentication failures**
    - Verify API key is correct
-   - Check TrueNAS API is accessible: `curl http://10.10.20.100/api/docs/`
+   - Check TrueNAS API is accessible: `curl http://YOUR-TRUENAS-IP/api/docs/`
 
 4. **NFS mount failures**
    - Verify NFS service is enabled on TrueNAS
@@ -312,7 +312,7 @@ kubectl logs -n kube-system tns-csi-node-xxxxx -c tns-csi-plugin
    - Check NVMe-oF kernel module is loaded: `lsmod | grep nvme_tcp`
    - Verify NVMe-oF service is running on TrueNAS
    - Check firewall allows port 4420 (default NVMe-oF TCP port)
-   - Test connectivity: `sudo nvme discover -t tcp -a 10.10.20.100 -s 4420`
+   - Test connectivity: `sudo nvme discover -t tcp -a YOUR-TRUENAS-IP -s 4420`
    - Check node plugin logs for detailed error messages
 
 6. **NVMe device not appearing**

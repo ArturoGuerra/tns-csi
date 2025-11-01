@@ -44,7 +44,7 @@ Create a `my-values.yaml` file:
 ```yaml
 truenas:
   # WebSocket URL format: wss://<host>:<port>/api/current
-  url: "wss://10.10.20.100:1443/api/current"
+  url: "wss://YOUR-TRUENAS-IP:1443/api/current"
   # API key from TrueNAS UI
   apiKey: "1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
@@ -53,7 +53,7 @@ storageClasses:
     enabled: true
     name: truenas-nfs
     pool: "tank"
-    server: "10.10.20.100"
+    server: "YOUR-TRUENAS-IP"
     # Optional: specify parent dataset (must exist on TrueNAS)
     # parentDataset: "k8s-volumes"
     mountOptions:
@@ -82,9 +82,9 @@ helm install tns-csi ./charts/tns-csi-driver \
 helm install tns-csi ./charts/tns-csi-driver \
   --namespace kube-system \
   --values charts/tns-csi-driver/values-nfs.yaml \
-  --set truenas.url="wss://10.10.20.100:1443/api/current" \
+  --set truenas.url="wss://YOUR-TRUENAS-IP:1443/api/current" \
   --set truenas.apiKey="your-api-key" \
-  --set storageClasses.nfs.server="10.10.20.100"
+  --set storageClasses.nfs.server="YOUR-TRUENAS-IP"
 ```
 
 #### NVMe-oF (Block storage, requires kernel modules)
@@ -92,9 +92,9 @@ helm install tns-csi ./charts/tns-csi-driver \
 helm install tns-csi ./charts/tns-csi-driver \
   --namespace kube-system \
   --values charts/tns-csi-driver/values-nvmeof.yaml \
-  --set truenas.url="wss://10.10.20.100:1443/api/current" \
+  --set truenas.url="wss://YOUR-TRUENAS-IP:1443/api/current" \
   --set truenas.apiKey="your-api-key" \
-  --set storageClasses.nvmeof.server="10.10.20.100"
+  --set storageClasses.nvmeof.server="YOUR-TRUENAS-IP"
 ```
 
 ## Configuration

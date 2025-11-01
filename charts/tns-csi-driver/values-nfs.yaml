@@ -4,7 +4,7 @@
 truenas:
   # WebSocket URL for TrueNAS API
   # Format: wss://<host>:<port>/api/current
-  url: "wss://10.10.20.100:1443/api/current"
+  url: "wss://YOUR-TRUENAS-IP:1443/api/current"
   
   # TrueNAS API key
   # Create this in TrueNAS UI: Settings > API Keys
@@ -18,7 +18,7 @@ storageClasses:
     # Storage pool name on TrueNAS
     pool: "tank"
     # TrueNAS server IP/hostname for NFS mounts
-    server: "10.10.20.100"
+    server: "YOUR-TRUENAS-IP"
     # Optional: Parent dataset (leave empty to create datasets directly in pool)
     # If specified, must be an existing dataset (e.g., "k8s-volumes")
     parentDataset: ""
