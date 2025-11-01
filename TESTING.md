@@ -1,13 +1,13 @@
-# Testing Guide - storage system Scale CSI Driver
+# Testing Guide - TrueNAS Scale CSI Driver
 
 This guide walks you through deploying and testing the CSI driver in a real environment.
 
 ## Prerequisites
 
-### 1. storage system Scale Setup
+### 1. TrueNAS Scale Setup
 
 **Requirements:**
-- storage system Scale 22.02 or later
+- TrueNAS Scale 22.02 or later
 - At least one ZFS pool created
 - API access enabled
 - Network connectivity from Kubernetes cluster
@@ -16,7 +16,7 @@ This guide walks you through deploying and testing the CSI driver in a real envi
 
 1. **Create an API Key:**
    ```
-   storage system UI → System Settings → API Keys → Add API Key
+   TrueNAS UI → System Settings → API Keys → Add API Key
    - Name: kubernetes-csi-driver
    - Click "Add"
    - SAVE THE API KEY - you won't see it again!
@@ -24,13 +24,13 @@ This guide walks you through deploying and testing the CSI driver in a real envi
 
 2. **Verify NFS Service is Running:**
    ```
-   storage system UI → System Settings → Services
+   TrueNAS UI → System Settings → Services
    - Ensure "NFS" service is running
    - If not, start it and set to "Start Automatically"
    ```
 
 3. **Note Your Configuration:**
-   - storage system IP: `_______________`
+   - TrueNAS IP: `_______________`
    - ZFS Pool Name: `_______________`
    - API Key: `_______________`
 
@@ -69,7 +69,7 @@ You need a place to host your Docker image. Options:
 ### Option A: Public Docker Hub
 
 ```bash
-cd /Users/bfenski/csi-driver-tns-api
+cd /Users/bfenski/tns-csi
 
 # Replace 'yourusername' with your Docker Hub username
 export REGISTRY_USER="yourusername"
@@ -90,7 +90,7 @@ docker push ${REGISTRY_USER}/tns-csi-driver:latest
 ### Option B: GitHub Container Registry
 
 ```bash
-cd /Users/bfenski/csi-driver-tns-api
+cd /Users/bfenski/tns-csi
 
 # Replace 'yourusername' with your GitHub username
 export GITHUB_USER="yourusername"
@@ -112,7 +112,7 @@ docker push ghcr.io/${GITHUB_USER}/tns-csi-driver:latest
 
 **For kind:**
 ```bash
-cd /Users/bfenski/csi-driver-tns-api
+cd /Users/bfenski/tns-csi
 
 # Build the image
 docker build -t tns-csi-driver:latest .
@@ -126,7 +126,7 @@ kind load docker-image tns-csi-driver:latest
 # Use minikube's Docker daemon
 eval $(minikube docker-env)
 
-cd /Users/bfenski/csi-driver-tns-api
+cd /Users/bfenski/tns-csi
 
 # Build the image
 docker build -t tns-csi-driver:latest .
@@ -137,7 +137,7 @@ docker build -t tns-csi-driver:latest .
 After building your image, update the manifests to use your image:
 
 ```bash
-cd /Users/bfenski/csi-driver-tns-api/deploy
+cd /Users/bfenski/tns-csi/deploy
 
 # For Docker Hub
 export IMAGE_NAME="yourusername/tns-csi-driver:latest"
@@ -155,16 +155,16 @@ sed -i.bak "s|your-registry/tns-csi-driver:latest|${IMAGE_NAME}|g" controller.ya
 grep "image:" controller.yaml node.yaml
 ```
 
-## Step 3: Configure storage system Credentials
+## Step 3: Configure TrueNAS Credentials
 
-Edit the secret file with your storage system details:
+Edit the secret file with your TrueNAS details:
 
 ```bash
-cd /Users/bfenski/csi-driver-tns-api/deploy
+cd /Users/bfenski/tns-csi/deploy
 
 # Edit secret.yaml
 # Replace:
-#   - YOUR_TRUENAS_IP with your storage system server IP
+#   - YOUR_TRUENAS_IP with your TrueNAS server IP
 #   - YOUR_API_KEY_HERE with your actual API key
 
 # Example:
@@ -184,15 +184,15 @@ EOF
 
 ## Step 4: Configure Storage Class
 
-Edit the storage class with your storage system pool and server details:
+Edit the storage class with your TrueNAS pool and server details:
 
 ```bash
-cd /Users/bfenski/csi-driver-tns-api/deploy
+cd /Users/bfenski/tns-csi/deploy
 
 # Edit storageclass.yaml
 # Update the following parameters:
 #   - pool: your ZFS pool name (e.g., "tank", "pool1")
-#   - server: your storage system IP address
+#   - server: your TrueNAS IP address
 #   - parentDataset: (optional) parent dataset path
 
 # Example:
@@ -219,7 +219,7 @@ EOF
 Deploy in the correct order:
 
 ```bash
-cd /Users/bfenski/csi-driver-tns-api/deploy
+cd /Users/bfenski/tns-csi/deploy
 
 # 1. Create RBAC resources
 kubectl apply -f rbac.yaml
@@ -296,11 +296,11 @@ kubectl get pvc test-pvc
 kubectl get pv
 # Should show a PV bound to test-pvc
 
-# Check storage system
-# In storage system UI → Storage → Datasets
+# Check TrueNAS
+# In TrueNAS UI → Storage → Datasets
 # You should see a new dataset under your pool/parentDataset
 
-# In storage system UI → Shares → NFS
+# In TrueNAS UI → Shares → NFS
 # You should see a new NFS share
 ```
 
@@ -316,7 +316,7 @@ spec:
   containers:
   - name: test
     image: busybox
-    command: ["sh", "-c", "echo 'Hello from storage system!' > /data/test.txt && sleep 3600"]
+    command: ["sh", "-c", "echo 'Hello from TrueNAS!' > /data/test.txt && sleep 3600"]
     volumeMounts:
     - name: data
       mountPath: /data
@@ -334,7 +334,7 @@ kubectl wait --for=condition=Ready pod/test-pod --timeout=60s
 
 # Check if file was written
 kubectl exec test-pod -- cat /data/test.txt
-# Should output: Hello from storage system!
+# Should output: Hello from TrueNAS!
 
 # Check mount on the node
 NODE=$(kubectl get pod test-pod -o jsonpath='{.spec.nodeName}')
@@ -396,7 +396,7 @@ kubectl delete pvc test-pvc
 kubectl get pv
 # Should not show the test PV
 
-# Check storage system
+# Check TrueNAS
 # For NFS: dataset and NFS share should be deleted
 # For NVMe-oF: namespace, subsystem, and ZVOL should be deleted
 # (Use UI: Storage → Datasets; Shares → NFS; Services → NVMe-oF if available)
@@ -426,7 +426,7 @@ done
 kubectl get pvc
 # Should show 3 PVCs all Bound
 
-# Check storage system - should see 3 new datasets and shares
+# Check TrueNAS - should see 3 new datasets and shares
 
 # Clean up
 kubectl delete pvc multi-pvc-1 multi-pvc-2 multi-pvc-3
@@ -444,8 +444,8 @@ kubectl describe pvc <pvc-name>
 kubectl logs -n kube-system -l app=tns-csi-controller -c tns-csi-plugin --tail=100
 
 # Common issues:
-# - Wrong storage system credentials (check secret)
-# - Network connectivity (can cluster reach storage system?)
+# - Wrong TrueNAS credentials (check secret)
+# - Network connectivity (can cluster reach TrueNAS?)
 # - Pool doesn't exist (check pool parameter in storage class)
 # - API key lacks permissions
 ```
@@ -461,8 +461,8 @@ kubectl logs -n kube-system -l app=tns-csi-node -c tns-csi-plugin --tail=100
 
 # Common issues:
 # - NFS client not installed on nodes
-# - Network connectivity from node to storage system
-# - NFS service not running on storage system
+# - Network connectivity from node to TrueNAS
+# - NFS service not running on TrueNAS
 # - Firewall blocking NFS ports (2049)
 ```
 
@@ -478,7 +478,7 @@ kubectl logs -n kube-system -l app=tns-csi-controller -c tns-csi-plugin --tail=1
 # If stuck, you may need to manually remove finalizers:
 kubectl patch pvc <pvc-name> -p '{"metadata":{"finalizers":null}}'
 
-# Then manually clean up in storage system UI
+# Then manually clean up in TrueNAS UI
 ```
 
 ### Check CSI Driver Health
@@ -536,8 +536,8 @@ kubectl exec perf-test -- fio --name=write-test --ioengine=libaio --iodepth=1 --
 - [ ] Can write data to volume
 - [ ] Data persists across pod restarts
 - [ ] PVC deletion removes PV
-- [ ] storage system dataset and share are created
-- [ ] storage system dataset and share are deleted on PVC deletion
+- [ ] TrueNAS dataset and share are created
+- [ ] TrueNAS dataset and share are deleted on PVC deletion
 - [ ] NVMe-oF subsystem, namespace, and ZVOL are created for NVMe-oF volumes
 - [ ] NVMe-oF subsystem, namespace, and ZVOL are deleted on PVC deletion (NVMe-oF)
 - [ ] Multiple PVCs can coexist
@@ -549,7 +549,7 @@ Once basic testing is successful:
 
 1. **Test edge cases:**
    - Network failures during operations
-   - storage system API unavailability
+   - TrueNAS API unavailability
    - Node failures
    - Concurrent volume operations
 
@@ -586,4 +586,4 @@ kubectl get pods -n kube-system | grep truenas
 kubectl get pv
 ```
 
-Manually clean up any remaining datasets/shares in storage system UI if needed.
+Manually clean up any remaining datasets/shares in TrueNAS UI if needed.

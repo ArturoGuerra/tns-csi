@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/yourusername/csi-driver-tns-api/pkg/tnsapi"
+	"github.com/fenio/tns-csi/pkg/tnsapi"
 	"google.golang.org/grpc"
 	"k8s.io/klog/v2"
 )

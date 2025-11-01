@@ -1,0 +1,45 @@
+{{- range $name, $sc := .Values.storageClasses }}
+{{- if $sc.enabled }}
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ $sc.name }}
+  labels:
+    {{- include "tns-csi-driver.labels" $ | nindent 4 }}
+  {{- if $sc.isDefault }}
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+  {{- end }}
+provisioner: {{ include "tns-csi-driver.driverName" $ }}
+parameters:
+  protocol: {{ $name | quote }}
+  pool: {{ $sc.pool | quote }}
+  {{- if $sc.server }}
+  server: {{ $sc.server | quote }}
+  {{- end }}
+  {{- if $sc.parentDataset }}
+  parentDataset: {{ $sc.parentDataset | quote }}
+  {{- end }}
+  {{- if eq $name "nvmeof" }}
+  transport: {{ $sc.transport | default "tcp" | quote }}
+  port: {{ $sc.port | default "4420" | quote }}
+  {{- end }}
+  {{- if eq $name "iscsi" }}
+  portal: {{ $sc.portal | quote }}
+  iqnPrefix: {{ $sc.iqnPrefix | quote }}
+  {{- end }}
+  {{- if $sc.parameters }}
+  {{- range $key, $value := $sc.parameters }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+  {{- end }}
+allowVolumeExpansion: {{ $sc.allowVolumeExpansion | default true }}
+reclaimPolicy: {{ $sc.reclaimPolicy | default "Delete" }}
+volumeBindingMode: {{ $sc.volumeBindingMode | default "Immediate" }}
+{{- if $sc.mountOptions }}
+mountOptions:
+  {{- toYaml $sc.mountOptions | nindent 2 }}
+{{- end }}
+{{- end }}
+{{- end }}

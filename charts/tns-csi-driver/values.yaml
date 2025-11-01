@@ -1,0 +1,219 @@
+# Default values for tns-csi-driver.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# TrueNAS connection settings
+truenas:
+  # TrueNAS API URL (WebSocket endpoint)
+  # Format: wss://YOUR-TRUENAS-IP:PORT/api/current
+  # Example: wss://10.10.20.100:1443/api/current
+  url: ""
+  
+  # TrueNAS API key
+  # You can generate this in TrueNAS UI: System > API Keys
+  apiKey: ""
+  
+  # Name of existing secret containing TrueNAS credentials
+  # If set, url and apiKey above will be ignored
+  # Secret should contain keys: 'url' and 'api-key'
+  existingSecret: ""
+
+# Image configuration
+image:
+  repository: fenio/tns-csi
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+
+# CSI Driver name
+csiDriverName: tns.csi.io
+
+# Controller configuration
+controller:
+  # Number of controller replicas (should be 1 for leader election)
+  replicas: 1
+  
+  # Log verbosity level (0-5, higher = more verbose)
+  logLevel: 5
+  
+  # Resource requests and limits
+  resources:
+    requests:
+      cpu: 10m
+      memory: 20Mi
+    limits:
+      cpu: 200m
+      memory: 200Mi
+  
+  # Node selector for controller pod
+  nodeSelector: {}
+  
+  # Tolerations for controller pod
+  tolerations: []
+  
+  # Affinity for controller pod
+  affinity: {}
+
+# Node plugin configuration
+node:
+  # Log verbosity level (0-5, higher = more verbose)
+  logLevel: 5
+  
+  # Resource requests and limits for node plugin
+  resources:
+    requests:
+      cpu: 10m
+      memory: 20Mi
+    limits:
+      cpu: 200m
+      memory: 200Mi
+  
+  # Node selector for node pods
+  nodeSelector: {}
+  
+  # Tolerations for node pods
+  tolerations: []
+  
+  # Affinity for node pods
+  affinity: {}
+  
+  # Update strategy for DaemonSet
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+
+# CSI sidecar images
+sidecars:
+  provisioner:
+    image:
+      repository: registry.k8s.io/sig-storage/csi-provisioner
+      tag: v3.6.2
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 10m
+        memory: 20Mi
+      limits:
+        cpu: 200m
+        memory: 200Mi
+  
+  attacher:
+    image:
+      repository: registry.k8s.io/sig-storage/csi-attacher
+      tag: v4.4.2
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 10m
+        memory: 20Mi
+      limits:
+        cpu: 200m
+        memory: 200Mi
+  
+  nodeDriverRegistrar:
+    image:
+      repository: registry.k8s.io/sig-storage/csi-node-driver-registrar
+      tag: v2.9.2
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 10m
+        memory: 20Mi
+      limits:
+        cpu: 100m
+        memory: 100Mi
+
+# Storage class configuration
+storageClasses:
+  # NFS storage class
+  nfs:
+    enabled: true
+    name: tns-nfs
+    # Set as default storage class
+    isDefault: false
+    # Storage pool name on TrueNAS
+    pool: "storage"
+    # TrueNAS server IP/hostname for NFS mounts
+    # Replace with your TrueNAS server IP
+    server: ""
+    # Optional: Parent dataset (defaults to pool name if not specified)
+    parentDataset: ""
+    # Reclaim policy: Delete or Retain
+    reclaimPolicy: Delete
+    # Volume binding mode: Immediate or WaitForFirstConsumer
+    volumeBindingMode: Immediate
+    # Allow volume expansion
+    allowVolumeExpansion: true
+    # Mount options for NFS
+    mountOptions: []
+    # Additional parameters
+    parameters: {}
+  
+  # NVMe-oF storage class (UNTESTED - requires Linux with nvme-tcp kernel module)
+  nvmeof:
+    enabled: false
+    name: tns-nvmeof
+    isDefault: false
+    # Storage pool name on TrueNAS
+    pool: "storage"
+    # TrueNAS server IP/hostname for NVMe-oF target
+    server: ""
+    # Optional: Parent dataset
+    parentDataset: ""
+    # NVMe-oF transport: tcp or rdma
+    transport: "tcp"
+    # NVMe-oF port
+    port: "4420"
+    reclaimPolicy: Delete
+    volumeBindingMode: WaitForFirstConsumer
+    allowVolumeExpansion: false
+    mountOptions: []
+    parameters: {}
+  
+  # iSCSI storage class (NOT YET IMPLEMENTED)
+  iscsi:
+    enabled: false
+    name: tns-iscsi
+    isDefault: false
+    pool: "storage"
+    # iSCSI target portal (IP:port)
+    portal: ""
+    # iSCSI IQN prefix
+    iqnPrefix: "iqn.2025-01.io.tns.csi"
+    reclaimPolicy: Delete
+    volumeBindingMode: WaitForFirstConsumer
+    allowVolumeExpansion: true
+    mountOptions: []
+    parameters: {}
+
+# Security context for controller pod
+securityContext:
+  runAsNonRoot: false
+  runAsUser: 0
+  fsGroup: 0
+
+# Priority class names
+priorityClassName:
+  controller: system-cluster-critical
+  node: system-node-critical
+
+# Service account configuration
+serviceAccount:
+  # Annotations to add to the service accounts
+  annotations: {}
+
+# Namespace where the CSI driver will be deployed
+namespace: kube-system
+
+# RBAC configuration
+rbac:
+  # Create RBAC resources
+  create: true
+
+# Custom labels to add to all resources
+customLabels: {}
+
+# Custom annotations to add to all resources
+customAnnotations: {}

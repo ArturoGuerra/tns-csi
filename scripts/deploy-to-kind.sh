@@ -95,11 +95,11 @@ info "Setting up NFS support in Kind nodes..."
 # Build Docker image
 info "Building CSI driver Docker image..."
 cd "$PROJECT_ROOT"
-docker build -t truenas/csi-driver:latest .
+docker build -t fenio/tns-csi:latest .
 
 # Load image into Kind
 info "Loading Docker image into Kind cluster..."
-kind load docker-image truenas/csi-driver:latest --name "$CLUSTER_NAME"
+kind load docker-image fenio/tns-csi:latest --name "$CLUSTER_NAME"
 
 # Create namespace if needed
 info "Setting up Kubernetes resources..."

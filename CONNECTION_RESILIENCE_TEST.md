@@ -52,8 +52,8 @@ From `pkg/tnsapi/client.go`:
 #### 1. Initial Connection Verification ✅
 ```
 I1031 20:27:49.843424 Connecting to storage WebSocket at wss://10.10.20.100:1443/api/current
-I1031 20:27:49.881555 Authenticating with storage system using auth.login_with_api_key
-I1031 20:27:50.579787 Successfully authenticated with storage system
+I1031 20:27:49.881555 Authenticating with TrueNAS using auth.login_with_api_key
+I1031 20:27:50.579787 Successfully authenticated with TrueNAS
 ```
 **Result:** Connection established successfully in ~700ms
 
@@ -103,7 +103,7 @@ docker exec truenas-csi-test-worker iptables -D OUTPUT -d 10.10.20.100 -j DROP
 Since all reconnection attempts were exhausted, restarted the pod:
 ```
 I1031 20:33:14.198189 Connecting to storage WebSocket at wss://10.10.20.100:1443/api/current
-I1031 20:33:15.025823 Successfully authenticated with storage system
+I1031 20:33:15.025823 Successfully authenticated with TrueNAS
 ```
 **Result:** New connection established successfully in ~800ms
 

@@ -1,0 +1,15 @@
+apiVersion: {{ include "tns-csi-driver.csidriver.apiVersion" . }}
+kind: CSIDriver
+metadata:
+  name: {{ .Values.csiDriverName }}
+  labels:
+    {{- include "tns-csi-driver.labels" . | nindent 4 }}
+  {{- with .Values.customAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  attachRequired: false
+  podInfoOnMount: false
+  volumeLifecycleModes:
+    - Persistent

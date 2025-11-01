@@ -1,12 +1,12 @@
-# storage system Scale CSI Driver - Deployment Guide
+# TrueNAS Scale CSI Driver - Deployment Guide
 
-This guide explains how to deploy the storage system Scale CSI driver on a Kubernetes cluster.
+This guide explains how to deploy the TrueNAS Scale CSI driver on a Kubernetes cluster.
 
 ## Prerequisites
 
 1. **Kubernetes Cluster**: Version 1.20 or later
-2. **storage system Scale**: Version 22.12 or later with API access
-3. **Network Access**: Kubernetes nodes must be able to reach storage system server
+2. **TrueNAS Scale**: Version 22.12 or later with API access
+3. **Network Access**: Kubernetes nodes must be able to reach TrueNAS server
 4. **Storage Protocol Requirements**:
    
    **For NFS Support:**
@@ -37,11 +37,11 @@ This guide explains how to deploy the storage system Scale CSI driver on a Kuber
    nvme version
    ```
 
-## Step 1: Prepare storage system Scale
+## Step 1: Prepare TrueNAS Scale
 
 ### 1.1 Create API Key
 
-1. Log in to storage system Scale web interface
+1. Log in to TrueNAS Scale web interface
 2. Navigate to **System Settings** > **API Keys**
 3. Click **Add**
 4. Give it a name (e.g., "kubernetes-csi")
@@ -131,17 +131,17 @@ Edit `deploy/storageclass.yaml` and configure parameters:
 ```yaml
 parameters:
   protocol: "nfs"
-  pool: "pool1"              # Your storage system pool name
+  pool: "pool1"              # Your TrueNAS pool name
   # parentDataset: "pool1/k8s"  # Optional parent dataset
-  server: "10.10.20.100"     # Your storage system IP/hostname
+  server: "10.10.20.100"     # Your TrueNAS IP/hostname
 ```
 
 **For NVMe-oF:**
 ```yaml
 parameters:
   protocol: "nvmeof"
-  pool: "storage"            # Your storage system pool name
-  server: "10.10.20.100"     # Your storage system IP/hostname
+  pool: "storage"            # Your TrueNAS pool name
+  server: "10.10.20.100"     # Your TrueNAS IP/hostname
   # Optional parameters:
   # filesystem: "ext4"       # Filesystem type: ext4 (default), ext3, or xfs
   # blocksize: "16K"         # Block size for ZVOL (default: 16K)
@@ -156,7 +156,7 @@ Note: NVMe-oF volumes use `ReadWriteOnce` access mode (block storage), while NFS
 Apply manifests in the following order:
 
 ```bash
-# 1. Create secret with storage system credentials
+# 1. Create secret with TrueNAS credentials
 kubectl apply -f deploy/secret.yaml
 
 # 2. Create RBAC resources
@@ -223,17 +223,17 @@ kubectl get pvc test-pvc
 # test-pvc   Bound    pvc-12345678-1234-1234-1234-123456789012   10Gi       RWX            tns-nfs     30s
 ```
 
-### 5.3 Verify in storage system
+### 5.3 Verify in TrueNAS
 
 **For NFS volumes:**
-1. Log in to storage system web interface
+1. Log in to TrueNAS web interface
 2. Navigate to **Datasets**
 3. You should see a new dataset: `pool1/test-pvc` (or `pool1/k8s/test-pvc` if using parent dataset)
 4. Navigate to **Shares** > **NFS**
 5. You should see a new NFS share for the dataset
 
 **For NVMe-oF volumes:**
-1. Log in to storage system web interface
+1. Log in to TrueNAS web interface
 2. Navigate to **Datasets**
 3. You should see a new ZVOL (block device): `pool1/test-nvmeof-pvc`
 4. Navigate to **Sharing** > **Block (iSCSI/NVMe-oF)**
@@ -265,7 +265,7 @@ kubectl exec test-pod -- df -h /data
 kubectl delete -f deploy/example-pvc.yaml
 ```
 
-Verify the dataset and NFS share are removed from storage system (if reclaimPolicy is Delete).
+Verify the dataset and NFS share are removed from TrueNAS (if reclaimPolicy is Delete).
 
 ## Troubleshooting
 
@@ -291,26 +291,26 @@ kubectl logs -n kube-system tns-csi-node-xxxxx -c tns-csi-plugin
    - Check node plugin logs
    - Verify NFS client is installed on nodes (for NFS)
    - Verify nvme-cli is installed on nodes (for NVMe-oF)
-   - Check network connectivity to storage system
+   - Check network connectivity to TrueNAS
 
 2. **PVC stuck in Pending**
    - Check controller logs
-   - Verify storage system credentials in secret
-   - Check storage system pool has available space
+   - Verify TrueNAS credentials in secret
+   - Check TrueNAS pool has available space
 
 3. **Authentication failures**
    - Verify API key is correct
-   - Check storage system API is accessible: `curl http://10.10.20.100/api/docs/`
+   - Check TrueNAS API is accessible: `curl http://10.10.20.100/api/docs/`
 
 4. **NFS mount failures**
-   - Verify NFS service is enabled on storage system
+   - Verify NFS service is enabled on TrueNAS
    - Check firewall rules allow NFS traffic (port 2049)
-   - Verify NFS share exists in storage system
+   - Verify NFS share exists in TrueNAS
 
 5. **NVMe-oF connection failures**
    - Verify nvme-cli is installed: `nvme version`
    - Check NVMe-oF kernel module is loaded: `lsmod | grep nvme_tcp`
-   - Verify NVMe-oF service is running on storage system
+   - Verify NVMe-oF service is running on TrueNAS
    - Check firewall allows port 4420 (default NVMe-oF TCP port)
    - Test connectivity: `sudo nvme discover -t tcp -a 10.10.20.100 -s 4420`
    - Check node plugin logs for detailed error messages
@@ -366,14 +366,14 @@ kubectl delete -f deploy/secret.yaml
 2. **Resource Limits**: Adjust CPU/memory limits based on workload
 
 3. **Security**:
-   - Use HTTPS/WSS for storage system API connection
+   - Use HTTPS/WSS for TrueNAS API connection
    - Implement network policies
    - Use encrypted storage classes
    - Regularly rotate API keys
 
 4. **Monitoring**: Set up monitoring for CSI driver metrics
 
-5. **Backup**: Ensure storage system pool has proper backup strategy
+5. **Backup**: Ensure TrueNAS pool has proper backup strategy
 
 ## Protocol Support
 
@@ -386,8 +386,8 @@ This CSI driver supports multiple storage protocols:
 ## Next Steps
 
 - **iSCSI Support**: Add block storage support via iSCSI protocol
-- **Snapshots**: Implement CSI snapshot support using storage system snapshots
+- **Snapshots**: Implement CSI snapshot support using TrueNAS snapshots
 - **Volume Expansion**: Test and validate volume expansion
-- **Volume Cloning**: Implement CSI volume cloning using storage system clone features
+- **Volume Cloning**: Implement CSI volume cloning using TrueNAS clone features
 - **Metrics**: Add Prometheus metrics endpoint
 - **Topology**: Add topology awareness for multi-zone deployments

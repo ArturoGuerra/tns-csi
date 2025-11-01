@@ -1,12 +1,12 @@
 # TNS CSI Driver
 
-A Kubernetes CSI (Container Storage Interface) driver for storage systems with TNS-compatible APIs.
+A Kubernetes CSI (Container Storage Interface) driver for TrueNAS and systems with TNS-compatible APIs.
 
 ## Important Disclaimer
 
 **This is an independent, community-developed project and is NOT affiliated with, endorsed by, or supported by iXsystems Inc. or the TrueNAS project.**
 
-This driver is designed to work with storage systems that provide TrueNAS-compatible APIs, but:
+This driver is designed to work with TrueNAS and systems that provide TrueNAS-compatible APIs, but:
 - It is not an official TrueNAS product
 - It is not supported by iXsystems Inc.
 - TrueNAS is a registered trademark of iXsystems Inc.
@@ -16,7 +16,7 @@ If you need official support, please use the official TrueNAS CSI driver availab
 
 ## Overview
 
-This CSI driver enables Kubernetes to provision and manage persistent volumes on storage systems with TNS-compatible APIs. It supports multiple storage protocols:
+This CSI driver enables Kubernetes to provision and manage persistent volumes on TrueNAS and systems with TNS-compatible APIs. It supports multiple storage protocols:
 
 - **NFS** - Network File System for file-based storage
 - **NVMe-oF** - NVMe over Fabrics for high-performance block storage
@@ -33,25 +33,54 @@ This CSI driver enables Kubernetes to provision and manage persistent volumes on
 ## Prerequisites
 
 - Kubernetes 1.20+
-- Storage system with TNS-compatible API (v2.0 WebSocket API)
+- TrueNAS or compatible system with TNS-compatible API (v2.0 WebSocket API)
 - For NFS: NFS client utilities on all nodes (`nfs-common` on Debian/Ubuntu, `nfs-utils` on RHEL/CentOS)
 - For NVMe-oF: 
   - `nvme-cli` package installed on all nodes
   - Kernel modules: `nvme-tcp`, `nvme-fabrics`
-  - Network connectivity to storage system on port 4420
+  - Network connectivity to TrueNAS on port 4420
 
 ## Quick Start
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed installation and configuration instructions.
 
-### Basic Installation
+### Installation via Helm (Recommended)
+
+The easiest way to install the TNS CSI Driver is using Helm:
+
+```bash
+# Add the Helm repository (coming soon)
+# helm repo add tns-csi https://fenio.github.io/tns-csi
+# helm repo update
+
+# Install from local chart
+helm install tns-csi ./charts/tns-csi-driver -n kube-system \
+  --set truenas.url="wss://YOUR-TRUENAS-IP:1443/api/current" \
+  --set truenas.apiKey="YOUR-API-KEY" \
+  --set storageClasses.nfs.enabled=true \
+  --set storageClasses.nfs.pool="YOUR-POOL-NAME" \
+  --set storageClasses.nfs.server="YOUR-TRUENAS-IP"
+```
+
+**Example NFS-only deployment:**
+```bash
+helm install tns-csi ./charts/tns-csi-driver -n kube-system \
+  --values charts/tns-csi-driver/values-nfs.yaml \
+  --set truenas.url="wss://10.10.20.100:1443/api/current" \
+  --set truenas.apiKey="your-api-key-here" \
+  --set storageClasses.nfs.server="10.10.20.100"
+```
+
+See the [Helm chart README](charts/tns-csi-driver/README.md) for detailed configuration options.
+
+### Manual Installation (kubectl)
 
 1. Create namespace and RBAC:
 ```bash
 kubectl apply -f deploy/rbac.yaml
 ```
 
-2. Configure storage system credentials:
+2. Configure TrueNAS credentials:
 ```bash
 # Copy the example secret file and edit with your actual credentials
 cp deploy/secret.yaml deploy/secret.local.yaml
@@ -82,8 +111,8 @@ The driver is configured via command-line flags and Kubernetes secrets:
 - `--endpoint` - CSI endpoint (default: `unix:///var/lib/kubelet/plugins/tns.csi.io/csi.sock`)
 - `--node-id` - Node identifier (typically the node name)
 - `--driver-name` - CSI driver name (default: `tns.csi.io`)
-- `--api-url` - Storage system API URL (e.g., `ws://10.10.20.100/api/v2.0/websocket`)
-- `--api-key` - Storage system API key
+- `--api-url` - TrueNAS API URL (e.g., `ws://10.10.20.100/api/v2.0/websocket`)
+- `--api-key` - TrueNAS API key
 
 ### Storage Class Parameters
 
@@ -125,7 +154,7 @@ See [DEPLOYMENT.md](DEPLOYMENT.md#troubleshooting) for detailed troubleshooting 
    - For NVMe-oF: Check that nvme-cli is installed and kernel modules are loaded
 2. **Failed to create volume**: Verify storage API credentials and network connectivity
 3. **Mount failed**: 
-   - For NFS: Ensure NFS service is running on storage system and accessible from nodes
+   - For NFS: Ensure NFS service is running on TrueNAS and accessible from nodes
    - For NVMe-oF: Ensure NVMe-oF service is enabled and firewall allows port 4420
 
 **View Logs:**
@@ -165,4 +194,4 @@ This project is licensed under the GNU General Public License v3.0 (GPL-3.0) - s
 
 ## Acknowledgments
 
-This driver is designed to work with storage systems that provide TrueNAS-compatible APIs. TrueNAS is a trademark of iXsystems Inc.
+This driver is designed to work with TrueNAS and systems that provide TrueNAS-compatible APIs. TrueNAS is a trademark of iXsystems Inc.

@@ -1,33 +1,55 @@
----
-# CSI Node DaemonSet
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: tns-csi-node
-  namespace: kube-system
+  name: {{ include "tns-csi-driver.fullname" . }}-node
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "tns-csi-driver.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node
+  {{- with .Values.customAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   selector:
     matchLabels:
-      app: tns-csi-node
+      {{- include "tns-csi-driver.node.selectorLabels" . | nindent 6 }}
+  {{- with .Values.node.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   template:
     metadata:
       labels:
-        app: tns-csi-node
+        {{- include "tns-csi-driver.node.selectorLabels" . | nindent 8 }}
+        {{- with .Values.customLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.customAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
-      serviceAccountName: tns-csi-node
-      priorityClassName: system-node-critical
+      serviceAccountName: {{ include "tns-csi-driver.node.serviceAccountName" . }}
+      {{- if .Values.priorityClassName.node }}
+      priorityClassName: {{ .Values.priorityClassName.node }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       hostNetwork: true
       containers:
         # TNS CSI Node Plugin
         - name: tns-csi-plugin
-          image: fenio/tns-csi:latest
-          imagePullPolicy: IfNotPresent
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             - "--endpoint=unix:///csi/csi.sock"
             - "--node-id=$(NODE_ID)"
             - "--api-url=$(TNS_URL)"
             - "--api-key=$(TNS_API_KEY)"
-            - "--v=5"
+            - "--v={{ .Values.node.logLevel }}"
           env:
             - name: NODE_ID
               valueFrom:
@@ -36,12 +58,12 @@ spec:
             - name: TNS_URL
               valueFrom:
                 secretKeyRef:
-                  name: tns-csi-secret
+                  name: {{ include "tns-csi-driver.secretName" . }}
                   key: url
             - name: TNS_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: tns-csi-secret
+                  name: {{ include "tns-csi-driver.secretName" . }}
                   key: api-key
           securityContext:
             privileged: true
@@ -59,43 +81,33 @@ spec:
             - name: sys-dir
               mountPath: /sys
           resources:
-            requests:
-              cpu: 10m
-              memory: 20Mi
-            limits:
-              cpu: 200m
-              memory: 200Mi
+            {{- toYaml .Values.node.resources | nindent 12 }}
 
         # CSI Node Driver Registrar sidecar
         - name: csi-node-driver-registrar
-          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.9.2
-          imagePullPolicy: Always
+          image: "{{ .Values.sidecars.nodeDriverRegistrar.image.repository }}:{{ .Values.sidecars.nodeDriverRegistrar.image.tag }}"
+          imagePullPolicy: {{ .Values.sidecars.nodeDriverRegistrar.image.pullPolicy }}
           args:
             - "--csi-address=$(ADDRESS)"
             - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"
-            - "--v=5"
+            - "--v={{ .Values.node.logLevel }}"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
             - name: DRIVER_REG_SOCK_PATH
-              value: /var/lib/kubelet/plugins/tns.csi.io/csi.sock
+              value: /var/lib/kubelet/plugins/{{ .Values.csiDriverName }}/csi.sock
           volumeMounts:
             - name: plugin-dir
               mountPath: /csi
             - name: registration-dir
               mountPath: /registration
           resources:
-            requests:
-              cpu: 10m
-              memory: 20Mi
-            limits:
-              cpu: 100m
-              memory: 100Mi
+            {{- toYaml .Values.sidecars.nodeDriverRegistrar.resources | nindent 12 }}
 
       volumes:
         - name: plugin-dir
           hostPath:
-            path: /var/lib/kubelet/plugins/tns.csi.io
+            path: /var/lib/kubelet/plugins/{{ .Values.csiDriverName }}
             type: DirectoryOrCreate
         - name: registration-dir
           hostPath:
@@ -113,3 +125,16 @@ spec:
           hostPath:
             path: /sys
             type: Directory
+
+      {{- with .Values.node.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.node.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.node.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

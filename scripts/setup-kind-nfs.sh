@@ -66,7 +66,7 @@ echo "================================================"
 echo
 echo "Next steps:"
 echo "1. Load your CSI driver image into Kind:"
-echo "   kind load docker-image truenas/csi-driver:latest --name $CLUSTER_NAME"
+echo "   kind load docker-image fenio/tns-csi:latest --name $CLUSTER_NAME"
 echo
 echo "2. Deploy the CSI driver:"
 echo "   kubectl apply -f deploy/"

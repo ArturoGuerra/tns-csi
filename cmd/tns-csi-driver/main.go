@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/yourusername/csi-driver-tns-api/pkg/driver"
+	"github.com/fenio/tns-csi/pkg/driver"
 	"k8s.io/klog/v2"
 )
 

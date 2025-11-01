@@ -83,10 +83,10 @@ This installs `nfs-common` package on all Kind nodes, which is required for NFS 
 
 ```bash
 # Build
-docker build -t truenas/csi-driver:latest .
+docker build -t fenio/tns-csi:latest .
 
 # Load into Kind
-kind load docker-image truenas/csi-driver:latest --name truenas-csi-test
+kind load docker-image fenio/tns-csi:latest --name truenas-csi-test
 ```
 
 ### 4. Create Kubernetes Secret

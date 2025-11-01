@@ -1,4 +1,4 @@
-module github.com/yourusername/csi-driver-tns-api
+module github.com/fenio/tns-csi
 
 go 1.25.3
 

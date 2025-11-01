@@ -1,7 +1,7 @@
 .PHONY: all build clean test docker-build docker-push lint lint-fix
 
 DRIVER_NAME=tns-csi-driver
-IMAGE_NAME=truenas/csi-driver
+IMAGE_NAME=fenio/tns-csi
 VERSION?=v0.1.0
 REGISTRY?=docker.io
 
