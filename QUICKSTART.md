@@ -1,12 +1,71 @@
 # TrueNAS CSI Driver - Quick Start Guide
 
 ## Prerequisites
-- Kubernetes cluster (tested with kind v1.31.0)
-- TrueNAS system with API access
-- TrueNAS API key
+- Kubernetes cluster (1.20+)
+- Helm 3.0+
+- TrueNAS SCALE 22.12+ or TrueNAS CORE 13.0+
+- TrueNAS API key (create in TrueNAS UI: Settings > API Keys)
 - Storage pool available on TrueNAS
+- For NFS: `nfs-common` package on all nodes (Debian/Ubuntu)
 
-## Installation
+## Installation (Recommended: Helm)
+
+### Quick Install with Helm
+
+The fastest way to get started is using Helm from the OCI registry:
+
+```bash
+helm install tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
+  --version 0.0.1 \
+  --namespace kube-system \
+  --create-namespace \
+  --set truenas.url="wss://YOUR-TRUENAS-IP:1443/api/current" \
+  --set truenas.apiKey="YOUR-API-KEY" \
+  --set storageClasses.nfs.enabled=true \
+  --set storageClasses.nfs.pool="YOUR-POOL-NAME" \
+  --set storageClasses.nfs.server="YOUR-TRUENAS-IP"
+```
+
+**Replace these values:**
+- `YOUR-TRUENAS-IP` - Your TrueNAS server IP address
+- `YOUR-API-KEY` - API key from TrueNAS (Settings > API Keys)
+- `YOUR-POOL-NAME` - ZFS pool name (e.g., `tank`, `storage`)
+
+That's it! The driver is now installed and ready to use.
+
+### Verify Installation
+
+```bash
+# Check pods are running
+kubectl get pods -n kube-system -l app.kubernetes.io/name=tns-csi-driver
+
+# Check storage class created
+kubectl get storageclass truenas-nfs
+
+# View controller logs
+kubectl logs -n kube-system -l app.kubernetes.io/component=controller -c tns-csi-driver
+```
+
+### Alternative: Install from Local Chart
+
+If you've cloned the repository:
+
+```bash
+helm install tns-csi ./charts/tns-csi-driver \
+  --namespace kube-system \
+  --set truenas.url="wss://YOUR-TRUENAS-IP:1443/api/current" \
+  --set truenas.apiKey="YOUR-API-KEY" \
+  --set storageClasses.nfs.enabled=true \
+  --set storageClasses.nfs.pool="YOUR-POOL-NAME" \
+  --set storageClasses.nfs.server="YOUR-TRUENAS-IP"
+```
+
+For more Helm configuration options, see the [Helm Chart README](charts/tns-csi-driver/README.md).
+
+## Manual Installation (Alternative)
+
+<details>
+<summary>Click to expand manual installation steps</summary>
 
 ### 1. Build and Load Driver Image (for kind)
 ```bash
@@ -27,9 +86,9 @@ metadata:
   namespace: kube-system
 type: Opaque
 stringData:
-  server: "YOUR-TRUENAS-IP"      # Your TrueNAS IP
-  port: "1443"                 # TrueNAS API port
-  apiKey: "your-api-key-here"  # Your API key
+  server: "YOUR-TRUENAS-IP"
+  port: "1443"
+  apiKey: "your-api-key-here"
 ```
 
 Apply the secret:
@@ -55,9 +114,9 @@ metadata:
   name: tns-nfs
 provisioner: tns.csi.io
 parameters:
-  protocol: "nfs"              # "nfs" or "nvmeof"
-  pool: "storage"              # Your TrueNAS pool name
-  server: "YOUR-TRUENAS-IP"       # TrueNAS NFS server IP
+  protocol: "nfs"
+  pool: "storage"
+  server: "YOUR-TRUENAS-IP"
 volumeBindingMode: Immediate
 allowVolumeExpansion: true
 reclaimPolicy: Delete
@@ -67,6 +126,8 @@ Apply the storage class:
 ```bash
 kubectl apply -f deploy/storageclass.yaml
 ```
+
+</details>
 
 ## Usage
 
@@ -201,65 +262,65 @@ kubectl exec <pod-name> -- cat /data/test.txt
 
 ## Troubleshooting
 
-### Driver Not Starting
-1. Check secret is created correctly:
-   ```bash
-   kubectl get secret truenas-csi-secret -n kube-system
-   ```
+### Check Driver Status
+```bash
+# Check all pods are running
+kubectl get pods -n kube-system -l app.kubernetes.io/name=tns-csi-driver
 
-2. Verify TrueNAS connectivity:
-   ```bash
-   # From any cluster node
-   curl -k https://<truenas-ip>:1443/api/v2.0/
-   ```
+# View controller logs
+kubectl logs -n kube-system -l app.kubernetes.io/component=controller -c tns-csi-driver
 
-3. Check controller logs for errors:
-   ```bash
-   kubectl logs -n kube-system tns-csi-controller-0 -c tns-csi-plugin
-   ```
+# View node logs
+kubectl logs -n kube-system -l app.kubernetes.io/component=node -c tns-csi-driver
 
-### PVC Stuck in Pending
-1. Check storage class exists:
-   ```bash
-   kubectl get storageclass
-   ```
+# Check storage classes
+kubectl get storageclass
+```
 
-2. Check controller logs:
-   ```bash
-   kubectl logs -n kube-system tns-csi-controller-0 -c tns-csi-plugin --tail=50
-   ```
+### Common Issues
 
-3. Describe the PVC for events:
-   ```bash
-   kubectl describe pvc <pvc-name>
-   ```
+#### Connection Failed
+- Verify TrueNAS URL format: `wss://YOUR-IP:1443/api/current`
+- Check API key has proper permissions (Settings > API Keys in TrueNAS UI)
+- Verify network connectivity from cluster to TrueNAS
+- Check TrueNAS API service is running
+- For self-signed certificates, WebSocket URL must use `wss://` protocol
 
-### Pod Cannot Mount Volume
-1. Check node driver is running:
-   ```bash
-   kubectl get pods -n kube-system -l app=tns-csi-node
-   ```
+#### PVC Stuck in Pending
+```bash
+# Check storage class exists
+kubectl get storageclass
 
-2. Check node driver logs:
-   ```bash
-   kubectl logs -n kube-system <node-pod-name> -c tns-csi-plugin
-   ```
+# Check controller logs for errors
+kubectl logs -n kube-system -l app.kubernetes.io/component=controller -c tns-csi-driver --tail=50
 
-3. Verify NFS connectivity from node:
-   ```bash
-   # SSH to the node or use a debug pod
-   showmount -e <truenas-ip>
-   ```
+# Describe PVC for events
+kubectl describe pvc <pvc-name>
+```
 
-### WebSocket Connection Issues
-The driver includes automatic reconnection with exponential backoff. If you see connection errors:
+#### Volume Mount Failed (NFS)
+- Verify NFS service is enabled on TrueNAS
+- Check firewall rules allow NFS traffic (ports 111, 2049)
+- Verify `nfs-common` package is installed on nodes: `dpkg -l | grep nfs-common`
+- Check node driver logs:
+  ```bash
+  kubectl logs -n kube-system -l app.kubernetes.io/component=node -c tns-csi-driver
+  ```
 
-1. Verify API key is valid
-2. Check TrueNAS firewall allows WebSocket connections (port 1443)
-3. Ensure TLS certificate is valid or self-signed certs are accepted
-4. Check logs for authentication failures
+#### "zpool (parentDataset) does not exist" Error
+- If using `parentDataset` parameter, it must exist on TrueNAS
+- Create it first: `zfs create tank/k8s-volumes` (via TrueNAS shell or API)
+- Or omit `parentDataset` to create volumes directly in the pool
 
-**Do not modify the WebSocket ping/pong logic** - it is working correctly and follows TrueNAS API requirements.
+### Enable Debug Logging
+```bash
+helm upgrade tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
+  --version 0.0.1 \
+  --namespace kube-system \
+  --reuse-values \
+  --set controller.extraArgs="{--v=5}" \
+  --set node.extraArgs="{--v=5}"
+```
 
 ## Storage Protocols
 
@@ -276,34 +337,70 @@ The driver includes automatic reconnection with exponential backoff. If you see 
 
 ## Advanced Configuration
 
-### Custom Mount Options
-Modify `pkg/driver/node.go` to add custom NFS mount options:
-```go
-// Line ~245
-mountOptions := []string{
-    "vers=4.2",
-    "nolock",
-    // Add your custom options here
-}
+### Using a Values File
+
+For more complex configurations, create a `my-values.yaml` file:
+
+```yaml
+truenas:
+  url: "wss://YOUR-TRUENAS-IP:1443/api/current"
+  apiKey: "1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+storageClasses:
+  nfs:
+    enabled: true
+    name: truenas-nfs
+    pool: "tank"
+    server: "YOUR-TRUENAS-IP"
+    # Optional: specify parent dataset (must exist on TrueNAS)
+    # parentDataset: "k8s-volumes"
+    mountOptions:
+      - hard
+      - nfsvers=4.1
+      - noatime
+    isDefault: true  # Set as default storage class
+```
+
+Install with values file:
+```bash
+helm install tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
+  --version 0.0.1 \
+  --namespace kube-system \
+  --create-namespace \
+  --values my-values.yaml
 ```
 
 ### Volume Expansion
-The storage class has `allowVolumeExpansion: true` enabled. To expand a volume:
 
-1. Edit the PVC:
-   ```bash
-   kubectl edit pvc <pvc-name>
-   ```
+To expand a volume (enabled by default with Helm):
 
-2. Change the storage size:
-   ```yaml
-   spec:
-     resources:
-       requests:
-         storage: 20Gi  # Increase size
-   ```
+```bash
+# Patch the PVC to increase size
+kubectl patch pvc my-pvc -p '{"spec":{"resources":{"requests":{"storage":"20Gi"}}}}'
+```
 
-3. The driver will automatically expand the dataset on TrueNAS
+The driver will automatically resize the dataset on TrueNAS.
+
+### NVMe-oF Configuration
+
+To use NVMe-oF instead of NFS:
+
+```bash
+helm install tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
+  --version 0.0.1 \
+  --namespace kube-system \
+  --create-namespace \
+  --set truenas.url="wss://YOUR-TRUENAS-IP:1443/api/current" \
+  --set truenas.apiKey="YOUR-API-KEY" \
+  --set storageClasses.nvmeof.enabled=true \
+  --set storageClasses.nvmeof.pool="YOUR-POOL-NAME" \
+  --set storageClasses.nvmeof.server="YOUR-TRUENAS-IP"
+```
+
+**Requirements:**
+- Linux kernel with `nvme-tcp` module support
+- Load module: `sudo modprobe nvme-tcp`
+- TrueNAS NVMe-oF service configured and running
 
 ## Performance Considerations
 
@@ -347,13 +444,41 @@ The driver exposes standard CSI metrics that can be scraped by Prometheus:
 - Operation latencies
 - Error rates
 
+## Upgrading
+
+To upgrade to a newer version:
+
+```bash
+helm upgrade tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
+  --version 0.0.1 \
+  --namespace kube-system \
+  --reuse-values
+```
+
+## Uninstalling
+
+To remove the driver (this will NOT delete existing PVs):
+
+```bash
+# Delete PVCs first if you want to clean up volumes
+kubectl delete pvc --all -A
+
+# Uninstall the driver
+helm uninstall tns-csi --namespace kube-system
+```
+
+## Next Steps
+
+- Review the [Helm Chart README](charts/tns-csi-driver/README.md) for detailed configuration options
+- Check [TESTING.md](TESTING.md) for comprehensive testing procedures
+- See [DEPLOYMENT.md](DEPLOYMENT.md) for production deployment best practices
+
 ## Support
 
 For issues or questions:
-1. Check logs: controller and node driver logs
-2. Review AGENTS.md for development guidelines
-3. Check TESTING_RESULTS.md for known working configurations
-4. Create an issue with:
+1. Check controller and node driver logs (see Troubleshooting section)
+2. Review [TESTING_RESULTS.md](TESTING_RESULTS.md) for known working configurations
+3. Create an issue with:
    - Kubernetes version
    - TrueNAS version
    - Driver logs
@@ -361,6 +486,7 @@ For issues or questions:
 
 ## References
 
+- [Helm Chart README](charts/tns-csi-driver/README.md) - Complete Helm configuration reference
 - [CSI Specification](https://github.com/container-storage-interface/spec)
 - [TrueNAS API Documentation](https://www.truenas.com/docs/api/)
 - [Kubernetes Storage Documentation](https://kubernetes.io/docs/concepts/storage/)
