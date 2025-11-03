@@ -100,8 +100,12 @@ func main() {
 		Params:  []interface{}{apiKey},
 	}
 
-	authJSON, _ := json.MarshalIndent(authReq, "", "  ")
-	fmt.Printf("Sending authentication request:\n%s\n\n", string(authJSON))
+	authJSON, err := json.MarshalIndent(authReq, "", "  ")
+	if err != nil {
+		fmt.Printf("Warning: Failed to marshal auth request: %v\n", err)
+	} else {
+		fmt.Printf("Sending authentication request:\n%s\n\n", string(authJSON))
+	}
 
 	if err := conn.WriteJSON(authReq); err != nil {
 		fmt.Printf("ERROR: Failed to send auth request: %v\n", err)
@@ -137,8 +141,12 @@ func main() {
 				Params:  []interface{}{},
 			}
 
-			queryJSON, _ := json.MarshalIndent(queryReq, "", "  ")
-			fmt.Printf("Sending query request:\n%s\n\n", string(queryJSON))
+			queryJSON, err := json.MarshalIndent(queryReq, "", "  ")
+			if err != nil {
+				fmt.Printf("Warning: Failed to marshal query request: %v\n", err)
+			} else {
+				fmt.Printf("Sending query request:\n%s\n\n", string(queryJSON))
+			}
 
 			if err := conn.WriteJSON(queryReq); err != nil {
 				fmt.Printf("ERROR: Failed to send query request: %v\n", err)

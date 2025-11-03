@@ -299,7 +299,9 @@ func (s *NodeService) publishBlockVolume(stagingTargetPath, targetPath string, r
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "Failed to create target file %s: %v", targetPath, err)
 		}
-		file.Close()
+		if err := file.Close(); err != nil {
+			klog.Warningf("Failed to close target file %s: %v", targetPath, err)
+		}
 	}
 
 	// Check if already mounted
@@ -328,7 +330,9 @@ func (s *NodeService) publishBlockVolume(stagingTargetPath, targetPath string, r
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// Cleanup: remove target file on failure
-		os.Remove(targetPath)
+		if removeErr := os.Remove(targetPath); removeErr != nil && !os.IsNotExist(removeErr) {
+			klog.Warningf("Failed to remove target file %s during cleanup: %v", targetPath, removeErr)
+		}
 		return nil, status.Errorf(codes.Internal, "Failed to bind mount block device: %v, output: %s", err, string(output))
 	}
 
