@@ -135,9 +135,24 @@ func (c *Client) connect() error {
 	}
 
 	// Set up pong handler to respond to server pings
-	// Note: TrueNAS does not send pings, so this is just for completeness
+	// Note: TrueNAS does not send pings, but it responds to ours with pongs
+	// Reset read deadline when we receive pongs to keep connection alive through firewalls
 	conn.SetPongHandler(func(_ string) error {
 		klog.V(6).Info("Received WebSocket pong")
+		// Reset read deadline since we got activity
+		if err := conn.SetReadDeadline(time.Now().Add(40 * time.Second)); err != nil {
+			klog.Warningf("Failed to reset read deadline in pong handler: %v", err)
+		}
+		return nil
+	})
+
+	// Set up ping handler in case server sends pings (respond automatically)
+	conn.SetPingHandler(func(appData string) error {
+		klog.V(6).Info("Received WebSocket ping, sending pong")
+		// gorilla/websocket automatically sends pongs, just reset deadline
+		if err := conn.SetReadDeadline(time.Now().Add(40 * time.Second)); err != nil {
+			klog.Warningf("Failed to reset read deadline in ping handler: %v", err)
+		}
 		return nil
 	})
 
