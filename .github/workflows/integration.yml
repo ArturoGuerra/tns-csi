@@ -1,0 +1,155 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  integration-nfs:
+    name: NFS Integration Tests
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+      
+      - name: Install k3s
+        run: |
+          # Check if k3s is already installed
+          if ! command -v k3s &> /dev/null; then
+            echo "Installing k3s..."
+            curl -sfL https://get.k3s.io | sh -s - \
+              --write-kubeconfig-mode 644 \
+              --disable traefik \
+              --disable servicelb
+          else
+            echo "k3s already installed"
+          fi
+          
+          # Wait for k3s to be ready
+          sudo k3s kubectl wait --for=condition=Ready node --all --timeout=60s
+      
+      - name: Configure kubectl
+        run: |
+          mkdir -p ~/.kube
+          sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+          sudo chown $USER:$USER ~/.kube/config
+          export KUBECONFIG=~/.kube/config
+          kubectl get nodes
+      
+      - name: Build CSI driver image
+        run: |
+          make docker-build
+          # Import image into k3s
+          sudo k3s ctr images import tns-csi-driver-*.tar || docker save bfenski/tns-csi:latest | sudo k3s ctr images import -
+      
+      - name: Deploy CSI driver
+        env:
+          TRUENAS_HOST: ${{ secrets.TRUENAS_HOST }}
+          TRUENAS_API_KEY: ${{ secrets.TRUENAS_API_KEY }}
+          TRUENAS_POOL: ${{ secrets.TRUENAS_POOL }}
+        run: |
+          # Create secret
+          kubectl create secret generic truenas-csi-secret \
+            --from-literal=api-key="${TRUENAS_API_KEY}" \
+            --from-literal=api-url="wss://${TRUENAS_HOST}:1443/api/current" \
+            --namespace kube-system \
+            --dry-run=client -o yaml | kubectl apply -f -
+          
+          # Deploy using Helm
+          helm upgrade --install tns-csi ./charts/tns-csi-driver \
+            --namespace kube-system \
+            --set image.repository=bfenski/tns-csi \
+            --set image.tag=latest \
+            --set image.pullPolicy=Never \
+            --set truenas.url="wss://${TRUENAS_HOST}:1443/api/current" \
+            --set truenas.apiKey="${TRUENAS_API_KEY}" \
+            --set storageClasses.nfs.enabled=true \
+            --set storageClasses.nfs.pool="${TRUENAS_POOL}" \
+            --set storageClasses.nfs.server="${TRUENAS_HOST}" \
+            --wait --timeout 5m
+      
+      - name: Wait for CSI driver to be ready
+        run: |
+          kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=tns-csi-driver -n kube-system --timeout=120s
+      
+      - name: Run NFS test
+        run: |
+          # Create test PVC
+          cat <<EOF | kubectl apply -f -
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: test-pvc-nfs
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: tns-csi-nfs
+          EOF
+          
+          # Wait for PVC to be bound
+          kubectl wait --for=jsonpath='{.status.phase}'=Bound pvc/test-pvc-nfs --timeout=120s
+          
+          # Create test pod
+          cat <<EOF | kubectl apply -f -
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: test-pod-nfs
+          spec:
+            containers:
+            - name: test
+              image: busybox
+              command: ["sh", "-c", "echo 'Hello from CSI' > /data/test.txt && cat /data/test.txt && sleep 30"]
+              volumeMounts:
+              - name: data
+                mountPath: /data
+            volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: test-pvc-nfs
+          EOF
+          
+          # Wait for pod to complete
+          kubectl wait --for=condition=Ready pod/test-pod-nfs --timeout=120s
+          kubectl logs test-pod-nfs -f || true
+          sleep 5
+      
+      - name: Check test results
+        run: |
+          # Verify pod ran successfully
+          kubectl get pod test-pod-nfs -o jsonpath='{.status.phase}' | grep -q Running
+          echo "✓ Test pod is running"
+          
+          # Check logs
+          kubectl logs test-pod-nfs | grep -q "Hello from CSI"
+          echo "✓ Data written and read successfully"
+      
+      - name: Cleanup test resources
+        if: always()
+        run: |
+          kubectl delete pod test-pod-nfs --ignore-not-found=true --wait=false
+          kubectl delete pvc test-pvc-nfs --ignore-not-found=true --wait=false
+          # Give it a moment to cleanup
+          sleep 5
+      
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          echo "=== Controller logs ==="
+          kubectl logs -n kube-system -l app.kubernetes.io/name=tns-csi-driver,app.kubernetes.io/component=controller --tail=100 || true
+          echo "=== Node logs ==="
+          kubectl logs -n kube-system -l app.kubernetes.io/name=tns-csi-driver,app.kubernetes.io/component=node --tail=100 || true
+          echo "=== PVC status ==="
+          kubectl describe pvc test-pvc-nfs || true
+          echo "=== Pod status ==="
+          kubectl describe pod test-pod-nfs || true
