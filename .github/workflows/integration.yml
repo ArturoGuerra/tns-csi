@@ -285,21 +285,11 @@ jobs:
             storageClassName: tns-nvmeof
           EOF
           
-          # Give it a moment to start provisioning
-          sleep 5
-          
-          # Check PVC status
-          echo "=== PVC Status ==="
+          # Check PVC status (should be Pending with WaitForFirstConsumer)
+          echo "=== Initial PVC Status ==="
           kubectl describe pvc test-pvc-nvmeof
           
-          # Check controller logs
-          echo "=== Controller Logs ==="
-          kubectl logs -n kube-system -l app.kubernetes.io/name=tns-csi-driver,app.kubernetes.io/component=controller --tail=50
-          
-          # Wait for PVC to be bound
-          kubectl wait --for=jsonpath='{.status.phase}'=Bound pvc/test-pvc-nvmeof --timeout=120s
-          
-          # Create test pod with block device
+          # Create test pod with block device (this will trigger binding)
           cat <<EOF | kubectl apply -f -
           apiVersion: v1
           kind: Pod
@@ -319,8 +309,21 @@ jobs:
                 claimName: test-pvc-nvmeof
           EOF
           
+          # Now PVC should bind since pod is created
+          echo "=== Waiting for PVC to bind ==="
+          kubectl wait --for=jsonpath='{.status.phase}'=Bound pvc/test-pvc-nvmeof --timeout=120s
+          echo "✓ PVC is bound"
+          
+          # Check controller logs for provisioning
+          echo "=== Controller Logs ==="
+          kubectl logs -n kube-system -l app.kubernetes.io/name=tns-csi-driver,app.kubernetes.io/component=controller --tail=50
+          
           # Wait for pod to be ready
+          echo "=== Waiting for pod to be ready ==="
           kubectl wait --for=condition=Ready pod/test-pod-nvmeof --timeout=120s
+          echo "✓ Pod is ready"
+          
+          # Show pod logs
           kubectl logs test-pod-nvmeof -f || true
           sleep 5
       
