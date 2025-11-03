@@ -25,11 +25,13 @@ jobs:
             echo "Installing Docker..."
             curl -fsSL https://get.docker.com -o get-docker.sh
             sudo sh get-docker.sh
-            sudo usermod -aG docker $USER
             rm get-docker.sh
           else
             echo "Docker already installed"
           fi
+          # Add current user to docker group
+          sudo usermod -aG docker $USER
+          # Apply group changes (newgrp doesn't work in scripts, so we'll use sudo for docker commands)
       
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -71,9 +73,10 @@ jobs:
       
       - name: Build CSI driver image
         run: |
-          make docker-build
+          # Build with sudo since group membership requires logout/login
+          sudo -E make docker-build
           # Import image into k3s
-          sudo k3s ctr images import tns-csi-driver-*.tar || docker save bfenski/tns-csi:latest | sudo k3s ctr images import -
+          sudo docker save bfenski/tns-csi:latest | sudo k3s ctr images import -
       
       - name: Deploy CSI driver
         env:
