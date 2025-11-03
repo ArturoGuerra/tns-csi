@@ -14,10 +14,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl wget git make nfs-common
+      
+      - name: Install Docker
+        run: |
+          if ! command -v docker &> /dev/null; then
+            echo "Installing Docker..."
+            curl -fsSL https://get.docker.com -o get-docker.sh
+            sudo sh get-docker.sh
+            sudo usermod -aG docker $USER
+            rm get-docker.sh
+          else
+            echo "Docker already installed"
+          fi
+      
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
+      
+      - name: Install Helm
+        run: |
+          if ! command -v helm &> /dev/null; then
+            echo "Installing Helm..."
+            curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          else
+            echo "Helm already installed"
+          fi
       
       - name: Install k3s
         run: |
