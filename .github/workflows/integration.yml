@@ -37,6 +37,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.25.3'
+          cache: false  # Disable cache on self-hosted runner to avoid tar warnings
       
       - name: Install Helm
         run: |
@@ -245,6 +246,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.25.3'
+          cache: false  # Disable cache on self-hosted runner to avoid tar warnings
       
       - name: Install Helm
         run: |
