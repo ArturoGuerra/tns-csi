@@ -285,37 +285,30 @@ func (s *NodeService) publishBlockVolume(stagingTargetPath, targetPath string, r
 		return nil, status.Errorf(codes.Internal, "Staging path %s is a directory, expected block device or symlink", stagingTargetPath)
 	}
 
-	// Create parent directory for target path if it doesn't exist
-	targetDir := filepath.Dir(targetPath)
-	if err := os.MkdirAll(targetDir, 0750); err != nil {
-		return nil, status.Errorf(codes.Internal, "Failed to create target parent directory: %v", err)
-	}
-
-	// Check if target already exists
-	if _, err := os.Stat(targetPath); err == nil {
-		// Target exists - check if it's the same as source
-		klog.V(4).Infof("Target path %s already exists", targetPath)
-		// Check if it's already bind mounted
-		mounted, err := s.isDeviceMounted(targetPath)
-		if err != nil {
-			klog.Warningf("Failed to check if device is mounted: %v", err)
-		}
-		if mounted {
-			klog.V(4).Infof("Target path %s is already mounted", targetPath)
-			return &csi.NodePublishVolumeResponse{}, nil
-		}
-		// Remove existing file if not mounted
-		if err := os.Remove(targetPath); err != nil {
-			return nil, status.Errorf(codes.Internal, "Failed to remove existing target path: %v", err)
-		}
-	}
-
-	// Create target as an empty file
-	targetFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_EXCL, 0660)
+	// For block volumes, kubelet creates the target file before calling NodePublishVolume.
+	// We just need to verify it exists and bind-mount to it.
+	targetInfo, err := os.Stat(targetPath)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Failed to create target file: %v", err)
+		if os.IsNotExist(err) {
+			return nil, status.Errorf(codes.FailedPrecondition, "Target path %s does not exist (kubelet should create it)", targetPath)
+		}
+		return nil, status.Errorf(codes.Internal, "Failed to stat target path: %v", err)
 	}
-	targetFile.Close()
+
+	// Target should be a regular file, not a directory
+	if targetInfo.IsDir() {
+		return nil, status.Errorf(codes.FailedPrecondition, "Target path %s is a directory, expected file", targetPath)
+	}
+
+	// Check if already mounted
+	mounted, err := s.isDeviceMounted(targetPath)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Failed to check if device is mounted: %v", err)
+	}
+	if mounted {
+		klog.V(4).Infof("Target path %s is already mounted", targetPath)
+		return &csi.NodePublishVolumeResponse{}, nil
+	}
 
 	// Bind mount the device from staging to target
 	mountOptions := []string{"bind"}

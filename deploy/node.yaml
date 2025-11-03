@@ -54,6 +54,9 @@ spec:
             - name: pods-mount-dir
               mountPath: /var/lib/kubelet/pods
               mountPropagation: Bidirectional
+            - name: plugins-mount-dir
+              mountPath: /var/lib/kubelet/plugins
+              mountPropagation: Bidirectional
             - name: device-dir
               mountPath: /dev
             - name: sys-dir
@@ -104,6 +107,10 @@ spec:
         - name: pods-mount-dir
           hostPath:
             path: /var/lib/kubelet/pods
+            type: Directory
+        - name: plugins-mount-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins
             type: Directory
         - name: device-dir
           hostPath:
