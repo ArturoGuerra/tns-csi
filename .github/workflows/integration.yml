@@ -303,15 +303,18 @@ jobs:
           TRUENAS_API_KEY: ${{ secrets.TRUENAS_API_KEY }}
           TRUENAS_POOL: ${{ secrets.TRUENAS_POOL }}
         run: |
+          # Construct TrueNAS WebSocket URL
+          TRUENAS_URL="wss://${TRUENAS_HOST}/api/current"
+          echo "Using TrueNAS URL: ${TRUENAS_URL}"
+          
           helm install tns-csi ./charts/tns-csi-driver \
             --namespace kube-system \
             --create-namespace \
             --set image.repository=bfenski/tns-csi \
             --set image.tag=latest \
             --set image.pullPolicy=Never \
-            --set truenas.host="${TRUENAS_HOST}" \
+            --set truenas.url="${TRUENAS_URL}" \
             --set truenas.apiKey="${TRUENAS_API_KEY}" \
-            --set truenas.allowInsecure=true \
             --set storageClasses.nfs.enabled=false \
             --set storageClasses.nvmeof.enabled=true \
             --set storageClasses.nvmeof.name=tns-nvmeof \
