@@ -1,18 +1,26 @@
+# Credentials and secrets
 .tns-credentials
 *.local.yaml
 *.local.yml
 secret.local.*
-AGENTS.md
+*.key
+*.pem
 
+# Test binaries and coverage
 *.test
-bin/
 *.out
+coverage.out
+coverage.html
+bin/
 
+# Go
 vendor/
-
 go.work
+go.work.sum
 
+# IDEs
 .vscode/
+.idea/
 *.swp
 *.swo
 *~
@@ -20,3 +28,16 @@ go.work
 # OS
 .DS_Store
 Thumbs.db
+
+# CI/CD local testing
+.github/workflows/*.local.yml
+
+# Temporary files
+*.tmp
+*.bak
+*.old
+*~
+
+# Build artifacts
+dist/
+_output/

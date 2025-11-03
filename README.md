@@ -42,7 +42,7 @@ This CSI driver enables Kubernetes to provision and manage persistent volumes on
 
 ## Quick Start
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed installation and configuration instructions.
+See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for detailed installation and configuration instructions.
 
 ### Installation via Helm (Recommended)
 
@@ -163,7 +163,7 @@ parameters:
 
 ## Troubleshooting
 
-See [DEPLOYMENT.md](DEPLOYMENT.md#troubleshooting) for detailed troubleshooting steps.
+See [DEPLOYMENT.md](docs/DEPLOYMENT.md#troubleshooting) for detailed troubleshooting steps.
 
 **Common Issues:**
 
@@ -205,7 +205,7 @@ make build
 
 ### Testing
 
-See [TESTING.md](TESTING.md) for testing procedures.
+Tests are automated via GitHub Actions CI/CD. See `.github/workflows/` for workflow configuration.
 
 ### Building Container Image
 
