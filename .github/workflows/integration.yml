@@ -212,3 +212,137 @@ jobs:
           kubectl describe pvc test-pvc-nfs || true
           echo "=== Pod status ==="
           kubectl describe pod test-pod-nfs || true
+
+  integration-nvmeof:
+    name: NVMe-oF Integration Tests
+    runs-on: self-hosted
+    needs: integration-nfs
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nvme-cli
+          # Load nvme-tcp kernel module
+          sudo modprobe nvme-tcp || echo "nvme-tcp module already loaded or not available"
+          # Verify nvme-tcp is available
+          lsmod | grep nvme || echo "Warning: nvme modules not loaded"
+      
+      - name: Configure kubectl
+        run: |
+          mkdir -p ~/.kube
+          sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+          sudo chown $USER:$USER ~/.kube/config
+          export KUBECONFIG=~/.kube/config
+          kubectl get nodes
+      
+      - name: Deploy NVMe-oF StorageClass
+        env:
+          TRUENAS_HOST: ${{ secrets.TRUENAS_HOST }}
+          TRUENAS_API_KEY: ${{ secrets.TRUENAS_API_KEY }}
+          TRUENAS_POOL: ${{ secrets.TRUENAS_POOL }}
+        run: |
+          # Update Helm deployment to enable NVMe-oF storage class
+          helm upgrade tns-csi ./charts/tns-csi-driver \
+            --namespace kube-system \
+            --reuse-values \
+            --set storageClasses.nvmeof.enabled=true \
+            --set storageClasses.nvmeof.name=tns-nvmeof \
+            --set storageClasses.nvmeof.pool="${TRUENAS_POOL}" \
+            --set storageClasses.nvmeof.server="${TRUENAS_HOST}" \
+            --set storageClasses.nvmeof.transport=tcp \
+            --set storageClasses.nvmeof.port=4420 \
+            --wait --timeout 3m
+          
+          # Verify StorageClass was created
+          kubectl get storageclass tns-nvmeof -o yaml
+      
+      - name: Run NVMe-oF test
+        run: |
+          # Create test PVC with volumeMode: Block
+          cat <<EOF | kubectl apply -f -
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: test-pvc-nvmeof
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            volumeMode: Block
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: tns-nvmeof
+          EOF
+          
+          # Give it a moment to start provisioning
+          sleep 5
+          
+          # Check PVC status
+          echo "=== PVC Status ==="
+          kubectl describe pvc test-pvc-nvmeof
+          
+          # Check controller logs
+          echo "=== Controller Logs ==="
+          kubectl logs -n kube-system -l app.kubernetes.io/name=tns-csi-driver,app.kubernetes.io/component=controller --tail=50
+          
+          # Wait for PVC to be bound
+          kubectl wait --for=jsonpath='{.status.phase}'=Bound pvc/test-pvc-nvmeof --timeout=120s
+          
+          # Create test pod with block device
+          cat <<EOF | kubectl apply -f -
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: test-pod-nvmeof
+          spec:
+            containers:
+            - name: test
+              image: busybox
+              command: ["sh", "-c", "dd if=/dev/zero of=/dev/xvda bs=1M count=10 && echo 'Block device write successful' && sleep 30"]
+              volumeDevices:
+              - name: data
+                devicePath: /dev/xvda
+            volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: test-pvc-nvmeof
+          EOF
+          
+          # Wait for pod to be ready
+          kubectl wait --for=condition=Ready pod/test-pod-nvmeof --timeout=120s
+          kubectl logs test-pod-nvmeof -f || true
+          sleep 5
+      
+      - name: Check test results
+        run: |
+          # Verify pod ran successfully
+          kubectl get pod test-pod-nvmeof -o jsonpath='{.status.phase}' | grep -q Running
+          echo "✓ Test pod is running"
+          
+          # Check logs for successful write
+          kubectl logs test-pod-nvmeof | grep -q "Block device write successful"
+          echo "✓ Block device write successful"
+      
+      - name: Cleanup test resources
+        if: always()
+        run: |
+          kubectl delete pod test-pod-nvmeof --ignore-not-found=true --wait=false
+          kubectl delete pvc test-pvc-nvmeof --ignore-not-found=true --wait=false
+          # Give it a moment to cleanup
+          sleep 5
+      
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          echo "=== Controller logs ==="
+          kubectl logs -n kube-system -l app.kubernetes.io/name=tns-csi-driver,app.kubernetes.io/component=controller --tail=100 || true
+          echo "=== Node logs ==="
+          kubectl logs -n kube-system -l app.kubernetes.io/name=tns-csi-driver,app.kubernetes.io/component=node --tail=100 || true
+          echo "=== PVC status ==="
+          kubectl describe pvc test-pvc-nvmeof || true
+          echo "=== Pod status ==="
+          kubectl describe pod test-pod-nvmeof || true
+          echo "=== NVMe subsystems ==="
+          sudo nvme list || true
