@@ -11,7 +11,6 @@ jobs:
   integration-nfs:
     name: NFS Integration Tests
     runs-on: self-hosted
-    if: false  # Temporarily disabled to focus on NVMe-oF tests
     steps:
       - uses: actions/checkout@v4
       
