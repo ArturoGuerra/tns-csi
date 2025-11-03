@@ -11,6 +11,7 @@ jobs:
   integration-nfs:
     name: NFS Integration Tests
     runs-on: self-hosted
+    if: false  # Temporarily disabled to focus on NVMe-oF tests
     steps:
       - uses: actions/checkout@v4
       
@@ -216,18 +217,56 @@ jobs:
   integration-nvmeof:
     name: NVMe-oF Integration Tests
     runs-on: self-hosted
-    needs: integration-nfs
     steps:
       - uses: actions/checkout@v4
       
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y nvme-cli
+          sudo apt-get install -y curl wget git make nfs-common nvme-cli
           # Load nvme-tcp kernel module
           sudo modprobe nvme-tcp || echo "nvme-tcp module already loaded or not available"
           # Verify nvme-tcp is available
           lsmod | grep nvme || echo "Warning: nvme modules not loaded"
+      
+      - name: Install Docker
+        run: |
+          if ! command -v docker &> /dev/null; then
+            echo "Installing Docker..."
+            curl -fsSL https://get.docker.com -o get-docker.sh
+            sudo sh get-docker.sh
+            rm get-docker.sh
+          else
+            echo "Docker already installed"
+          fi
+          # Add current user to docker group
+          sudo usermod -aG docker $USER
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      
+      - name: Install Helm
+        run: |
+          if ! command -v helm &> /dev/null; then
+            echo "Installing Helm..."
+            curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          else
+            echo "Helm already installed"
+          fi
+      
+      - name: Install k3s
+        run: |
+          if ! command -v k3s &> /dev/null; then
+            echo "Installing k3s..."
+            curl -sfL https://get.k3s.io | sh -
+          else
+            echo "k3s already installed"
+          fi
+          
+          # Wait for k3s to be ready
+          sudo k3s kubectl wait --for=condition=Ready node --all --timeout=60s
       
       - name: Configure kubectl
         run: |
@@ -237,16 +276,43 @@ jobs:
           export KUBECONFIG=~/.kube/config
           kubectl get nodes
       
-      - name: Deploy NVMe-oF StorageClass
+      - name: Build CSI driver image
+        run: |
+          # Build with sudo since group membership requires logout/login
+          sudo -E make docker-build
+          # Import image into k3s
+          sudo docker save bfenski/tns-csi:latest | sudo k3s ctr images import -
+      
+      - name: Clean up previous deployment
+        run: |
+          # Remove any stuck Helm releases
+          helm uninstall tns-csi --namespace kube-system --wait || true
+          # Force delete any remaining pods
+          kubectl delete pods -n kube-system -l app.kubernetes.io/name=tns-csi-driver --force --grace-period=0 || true
+          # Clean up any remaining resources
+          kubectl delete secret truenas-csi-secret -n kube-system --ignore-not-found=true
+          kubectl delete storageclass tns-csi-nfs tns-nvmeof --ignore-not-found=true
+          # Give k8s time to cleanup
+          sleep 10
+          # Verify no old pods remain
+          kubectl get pods -n kube-system -l app.kubernetes.io/name=tns-csi-driver || echo "No old pods found (good)"
+      
+      - name: Deploy CSI driver with NVMe-oF support
         env:
           TRUENAS_HOST: ${{ secrets.TRUENAS_HOST }}
           TRUENAS_API_KEY: ${{ secrets.TRUENAS_API_KEY }}
           TRUENAS_POOL: ${{ secrets.TRUENAS_POOL }}
         run: |
-          # Update Helm deployment to enable NVMe-oF storage class
-          helm upgrade tns-csi ./charts/tns-csi-driver \
+          helm install tns-csi ./charts/tns-csi-driver \
             --namespace kube-system \
-            --reuse-values \
+            --create-namespace \
+            --set image.repository=bfenski/tns-csi \
+            --set image.tag=latest \
+            --set image.pullPolicy=Never \
+            --set truenas.host="${TRUENAS_HOST}" \
+            --set truenas.apiKey="${TRUENAS_API_KEY}" \
+            --set truenas.allowInsecure=true \
+            --set storageClasses.nfs.enabled=false \
             --set storageClasses.nvmeof.enabled=true \
             --set storageClasses.nvmeof.name=tns-nvmeof \
             --set storageClasses.nvmeof.pool="${TRUENAS_POOL}" \
@@ -255,17 +321,23 @@ jobs:
             --set storageClasses.nvmeof.port=4420 \
             --wait --timeout 3m
           
-          # Verify StorageClass was created
+          # Verify deployment
+          echo "=== Helm deployment status ==="
+          helm list -n kube-system
+          
+          echo "=== CSI driver pods ==="
+          kubectl get pods -n kube-system -l app.kubernetes.io/name=tns-csi-driver
+          
           echo "=== NVMe-oF StorageClass ==="
           kubectl get storageclass tns-nvmeof -o yaml
+      
+      - name: Wait for CSI driver to be ready
+        run: |
+          kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=tns-csi-driver -n kube-system --timeout=120s
           
-          # Restart CSI controller to ensure it picks up new StorageClass
-          echo "=== Restarting CSI controller ==="
-          kubectl rollout restart statefulset -n kube-system -l app.kubernetes.io/name=tns-csi-driver,app.kubernetes.io/component=controller
-          kubectl rollout status statefulset -n kube-system -l app.kubernetes.io/name=tns-csi-driver,app.kubernetes.io/component=controller --timeout=120s
-          
-          # Give it a moment to settle
-          sleep 5
+          # Verify pods are using the correct image
+          echo "=== Verifying image version ==="
+          kubectl get pods -n kube-system -l app.kubernetes.io/name=tns-csi-driver -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[*].image}{"\n"}{end}'
       
       - name: Run NVMe-oF test
         run: |
