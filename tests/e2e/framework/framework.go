@@ -2,8 +2,12 @@
 package framework
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os/exec"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +28,66 @@ type suiteState struct {
 }
 
 var suite = &suiteState{}
+
+// getDriverVersionInfo extracts version info from controller logs.
+// Returns a formatted string like "v0.1.0 (commit: abc1234, built: 2024-01-22T12:00:00Z)"
+// or empty string if version info cannot be extracted.
+func getDriverVersionInfo() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Get controller logs to find the startup message with version info
+	args := []string{
+		"logs",
+		"-n", "kube-system",
+		"-l", "app.kubernetes.io/name=tns-csi-driver,app.kubernetes.io/component=controller",
+		"--tail=50",
+	}
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		klog.V(4).Infof("Failed to get controller logs for version info: %v", err)
+		return ""
+	}
+
+	// Look for the startup log line: "Starting TNS CSI Driver v0.1.0 (commit: abc1234, built: 2024-01-22T12:00:00Z)"
+	logs := stdout.String()
+	re := regexp.MustCompile(`Starting TNS CSI Driver (\S+) \(commit: ([^,]+), built: ([^)]+)\)`)
+	matches := re.FindStringSubmatch(logs)
+	if len(matches) >= 4 {
+		return fmt.Sprintf("%s (commit: %s, built: %s)", matches[1], matches[2], matches[3])
+	}
+
+	// Fallback: try to find just version
+	reSimple := regexp.MustCompile(`Starting TNS CSI Driver (\S+)`)
+	matchesSimple := reSimple.FindStringSubmatch(logs)
+	if len(matchesSimple) >= 2 {
+		return matchesSimple[1]
+	}
+
+	// Last resort: check image tag from deployment
+	argsImage := []string{
+		"get", "deployment",
+		"-n", "kube-system",
+		"-l", "app.kubernetes.io/name=tns-csi-driver,app.kubernetes.io/component=controller",
+		"-o", "jsonpath={.items[0].spec.template.spec.containers[0].image}",
+	}
+	cmdImage := exec.CommandContext(ctx, "kubectl", argsImage...)
+	imageOutput, err := cmdImage.Output()
+	if err == nil && len(imageOutput) > 0 {
+		image := strings.TrimSpace(string(imageOutput))
+		// Extract tag from image (e.g., "repo/name:tag" -> "tag")
+		if idx := strings.LastIndex(image, ":"); idx != -1 {
+			return "image " + image[idx+1:]
+		}
+		return "image " + image
+	}
+
+	return ""
+}
 
 // SetupSuite initializes the suite-level resources (Helm deployment).
 // This should be called from BeforeSuite in each test suite.
@@ -60,6 +124,11 @@ func SetupSuite(protocol string) error {
 		return fmt.Errorf("CSI driver not ready: %w", waitErr)
 	}
 	klog.Infof("CSI driver is ready")
+
+	// Log driver version info
+	if versionInfo := getDriverVersionInfo(); versionInfo != "" {
+		klog.Infof("Driver version: %s", versionInfo)
+	}
 
 	// Create TrueNAS verifier (store any error for later)
 	truenas, truenasErr := NewTrueNASVerifier(config.TrueNASHost, config.TrueNASAPIKey)

@@ -29,6 +29,7 @@ var (
 	ErrNotCSIVolume            = errors.New("PV is not a CSI volume")
 	ErrSnapshotNoBoundContent  = errors.New("volumesnapshot has no bound content")
 	ErrStorageClassProvisioner = errors.New("storageclass has wrong provisioner")
+	ErrUnexpectedFormat        = errors.New("unexpected output format")
 )
 
 // Default access mode for PVCs.
@@ -1158,4 +1159,206 @@ func (k *KubernetesClient) GetControllerLogs(ctx context.Context, tailLines int)
 		return "", fmt.Errorf("failed to get controller logs: %w", err)
 	}
 	return string(output), nil
+}
+
+// GetCSIDriver retrieves a CSIDriver by name.
+func (k *KubernetesClient) GetCSIDriver(ctx context.Context, name string) (*storagev1.CSIDriver, error) {
+	return k.clientset.StorageV1().CSIDrivers().Get(ctx, name, metav1.GetOptions{})
+}
+
+// IsControllerReady checks if the CSI controller deployment is ready.
+func (k *KubernetesClient) IsControllerReady(ctx context.Context) (bool, error) {
+	args := []string{
+		"get", "deployment",
+		"-n", "kube-system",
+		"-l", "app.kubernetes.io/name=tns-csi-driver,app.kubernetes.io/component=controller",
+		"-o", "jsonpath={.items[0].status.readyReplicas}",
+	}
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
+	output, err := cmd.Output()
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(string(output)) != "" && strings.TrimSpace(string(output)) != "0", nil
+}
+
+// GetNodeDaemonSetStatus returns the ready and desired count for the CSI node daemonset.
+func (k *KubernetesClient) GetNodeDaemonSetStatus(ctx context.Context) (ready, desired int, err error) {
+	args := []string{
+		"get", "daemonset",
+		"-n", "kube-system",
+		"-l", "app.kubernetes.io/name=tns-csi-driver,app.kubernetes.io/component=node",
+		"-o", "jsonpath={.items[0].status.numberReady},{.items[0].status.desiredNumberScheduled}",
+	}
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, 0, err
+	}
+	parts := strings.Split(strings.TrimSpace(string(output)), ",")
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("%w: %s", ErrUnexpectedFormat, output)
+	}
+	if _, scanErr := fmt.Sscanf(parts[0], "%d", &ready); scanErr != nil {
+		return 0, 0, fmt.Errorf("%w: %w", ErrUnexpectedFormat, scanErr)
+	}
+	if _, scanErr := fmt.Sscanf(parts[1], "%d", &desired); scanErr != nil {
+		return 0, 0, fmt.Errorf("%w: %w", ErrUnexpectedFormat, scanErr)
+	}
+	return ready, desired, nil
+}
+
+// DeletePV deletes a PersistentVolume by name.
+func (k *KubernetesClient) DeletePV(ctx context.Context, name string) error {
+	err := k.clientset.CoreV1().PersistentVolumes().Delete(ctx, name, metav1.DeleteOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	return err
+}
+
+// CreateStorageClassWithReclaimPolicy creates a StorageClass with a specific reclaim policy.
+func (k *KubernetesClient) CreateStorageClassWithReclaimPolicy(ctx context.Context, name, provisioner string, params map[string]string, reclaimPolicy corev1.PersistentVolumeReclaimPolicy) error {
+	// Build parameters YAML
+	var paramsBuilder strings.Builder
+	for key, value := range params {
+		paramsBuilder.WriteString("  ")
+		paramsBuilder.WriteString(key)
+		paramsBuilder.WriteString(": \"")
+		paramsBuilder.WriteString(value)
+		paramsBuilder.WriteString("\"\n")
+	}
+
+	yaml := fmt.Sprintf(`apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: %s
+provisioner: %s
+parameters:
+%sreclaimPolicy: %s
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer
+`, name, provisioner, paramsBuilder.String(), reclaimPolicy)
+
+	return k.applyYAML(ctx, yaml)
+}
+
+// createPVCWithMetadata is a helper that creates a PVC with custom labels and/or annotations.
+func (k *KubernetesClient) createPVCWithMetadata(ctx context.Context, opts PVCOptions, labels, annotations map[string]string) (*corev1.PersistentVolumeClaim, error) {
+	quantity, err := resource.ParseQuantity(opts.Size)
+	if err != nil {
+		return nil, fmt.Errorf("invalid size %q: %w", opts.Size, err)
+	}
+
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        opts.Name,
+			Namespace:   k.namespace,
+			Labels:      labels,
+			Annotations: annotations,
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes:      opts.AccessModes,
+			StorageClassName: &opts.StorageClassName,
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: quantity,
+				},
+			},
+		},
+	}
+
+	if opts.VolumeMode != nil {
+		pvc.Spec.VolumeMode = opts.VolumeMode
+	}
+
+	return k.clientset.CoreV1().PersistentVolumeClaims(k.namespace).Create(ctx, pvc, metav1.CreateOptions{})
+}
+
+// CreatePVCWithLabels creates a PVC with custom labels.
+func (k *KubernetesClient) CreatePVCWithLabels(ctx context.Context, opts PVCOptions, labels map[string]string) (*corev1.PersistentVolumeClaim, error) {
+	return k.createPVCWithMetadata(ctx, opts, labels, nil)
+}
+
+// CreatePVCWithAnnotations creates a PVC with custom annotations.
+func (k *KubernetesClient) CreatePVCWithAnnotations(ctx context.Context, opts PVCOptions, annotations map[string]string) (*corev1.PersistentVolumeClaim, error) {
+	return k.createPVCWithMetadata(ctx, opts, nil, annotations)
+}
+
+// WaitForPVCCapacity waits for a PVC to report a specific capacity (used for expansion testing).
+func (k *KubernetesClient) WaitForPVCCapacity(ctx context.Context, name, expectedSize string, timeout time.Duration) error {
+	expected, err := resource.ParseQuantity(expectedSize)
+	if err != nil {
+		return fmt.Errorf("invalid expected size %q: %w", expectedSize, err)
+	}
+
+	return wait.PollUntilContextTimeout(ctx, 2*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
+		pvc, err := k.GetPVC(ctx, name)
+		if err != nil {
+			return false, nil //nolint:nilerr // Continue polling on transient errors
+		}
+		if capacity, ok := pvc.Status.Capacity[corev1.ResourceStorage]; ok {
+			return capacity.Cmp(expected) >= 0, nil
+		}
+		return false, nil
+	})
+}
+
+// GetMetricsEndpoint fetches metrics from the CSI driver's metrics endpoint.
+func (k *KubernetesClient) GetMetricsEndpoint(ctx context.Context) (string, error) {
+	// Port-forward to the controller pod and fetch metrics
+	// For simplicity, we use kubectl exec to curl the metrics endpoint
+	args := []string{
+		"exec",
+		"-n", "kube-system",
+		"-l", "app.kubernetes.io/name=tns-csi-driver,app.kubernetes.io/component=controller",
+		"--", "wget", "-q", "-O", "-", "http://localhost:8080/metrics",
+	}
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get metrics: %w", err)
+	}
+	return string(output), nil
+}
+
+// GetPodsWithLabel returns pods matching a label selector in a namespace.
+func (k *KubernetesClient) GetPodsWithLabel(ctx context.Context, namespace, labelSelector string) ([]corev1.Pod, error) {
+	podList, err := k.clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return podList.Items, nil
+}
+
+// GetPodLogs returns logs from a specific container in a pod.
+func (k *KubernetesClient) GetPodLogs(ctx context.Context, namespace, podName, containerName string, tailLines int) (string, error) {
+	args := []string{
+		"logs",
+		"-n", namespace,
+		podName,
+		fmt.Sprintf("--tail=%d", tailLines),
+	}
+	if containerName != "" {
+		args = append(args, "-c", containerName)
+	}
+	cmd := exec.CommandContext(ctx, "kubectl", args...) //nolint:gosec // args come from test framework, not user input
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get pod logs: %w", err)
+	}
+	return string(output), nil
+}
+
+// GetEventsForPVC returns events related to a PVC.
+func (k *KubernetesClient) GetEventsForPVC(ctx context.Context, pvcName string) ([]corev1.Event, error) {
+	eventList, err := k.clientset.CoreV1().Events(k.namespace).List(ctx, metav1.ListOptions{
+		FieldSelector: fmt.Sprintf("involvedObject.name=%s,involvedObject.kind=PersistentVolumeClaim", pvcName),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return eventList.Items, nil
 }

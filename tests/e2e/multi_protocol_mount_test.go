@@ -13,7 +13,7 @@ import (
 	"github.com/fenio/tns-csi/tests/e2e/framework"
 )
 
-var _ = Describe("Dual Mount", func() {
+var _ = Describe("Multi-Protocol Mount", func() {
 	var f *framework.Framework
 
 	BeforeEach(func() {
@@ -21,8 +21,8 @@ var _ = Describe("Dual Mount", func() {
 		f, err = framework.NewFramework()
 		Expect(err).NotTo(HaveOccurred(), "Failed to create framework")
 
-		// Setup with "both" to enable both NFS and NVMe-oF storage classes
-		err = f.Setup("both")
+		// Setup with "all" to enable NFS, NVMe-oF, and iSCSI storage classes
+		err = f.Setup("all")
 		Expect(err).NotTo(HaveOccurred(), "Failed to setup framework")
 	})
 
@@ -32,12 +32,12 @@ var _ = Describe("Dual Mount", func() {
 		}
 	})
 
-	It("should mount both NFS and NVMe-oF volumes in a single pod", func() {
+	It("should mount NFS, NVMe-oF, and iSCSI volumes in a single pod", func() {
 		ctx := context.Background()
 
 		By("Creating an NFS PVC")
 		pvcNFS, err := f.K8s.CreatePVC(ctx, framework.PVCOptions{
-			Name:             "dual-mount-nfs",
+			Name:             "multi-mount-nfs",
 			StorageClassName: "tns-csi-nfs",
 			Size:             "1Gi",
 			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany},
@@ -53,7 +53,7 @@ var _ = Describe("Dual Mount", func() {
 
 		By("Creating an NVMe-oF PVC")
 		pvcNVMe, err := f.K8s.CreatePVC(ctx, framework.PVCOptions{
-			Name:             "dual-mount-nvmeof",
+			Name:             "multi-mount-nvmeof",
 			StorageClassName: "tns-csi-nvmeof",
 			Size:             "1Gi",
 			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
@@ -63,19 +63,31 @@ var _ = Describe("Dual Mount", func() {
 			return f.K8s.DeletePVC(context.Background(), pvcNVMe.Name)
 		})
 
-		By("Creating a pod with both volumes mounted")
-		pod, err := createDualMountPod(ctx, f, "dual-mount-pod", pvcNFS.Name, pvcNVMe.Name)
-		Expect(err).NotTo(HaveOccurred(), "Failed to create dual-mount pod")
+		By("Creating an iSCSI PVC")
+		pvcISCSI, err := f.K8s.CreatePVC(ctx, framework.PVCOptions{
+			Name:             "multi-mount-iscsi",
+			StorageClassName: "tns-csi-iscsi",
+			Size:             "1Gi",
+			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+		})
+		Expect(err).NotTo(HaveOccurred(), "Failed to create iSCSI PVC")
+		f.Cleanup.Add(func() error {
+			return f.K8s.DeletePVC(context.Background(), pvcISCSI.Name)
+		})
+
+		By("Creating a pod with all three volumes mounted")
+		pod, err := createMultiMountPod(ctx, f, "multi-mount-pod", pvcNFS.Name, pvcNVMe.Name, pvcISCSI.Name)
+		Expect(err).NotTo(HaveOccurred(), "Failed to create multi-mount pod")
 		f.Cleanup.Add(func() error {
 			return f.K8s.DeletePod(context.Background(), pod.Name)
 		})
 
 		By("Waiting for pod to be ready")
-		// NVMe-oF has longer timeout due to WaitForFirstConsumer binding
+		// Block protocols have longer timeout due to WaitForFirstConsumer binding
 		err = f.K8s.WaitForPodReady(ctx, pod.Name, 6*time.Minute)
 		Expect(err).NotTo(HaveOccurred(), "Pod did not become ready")
 
-		By("Verifying both PVCs are now bound")
+		By("Verifying all PVCs are now bound")
 		pvcNFS, err = f.K8s.GetPVC(ctx, pvcNFS.Name)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(pvcNFS.Status.Phase).To(Equal(corev1.ClaimBound), "NFS PVC should be bound")
@@ -84,6 +96,10 @@ var _ = Describe("Dual Mount", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(pvcNVMe.Status.Phase).To(Equal(corev1.ClaimBound), "NVMe-oF PVC should be bound")
 
+		pvcISCSI, err = f.K8s.GetPVC(ctx, pvcISCSI.Name)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(pvcISCSI.Status.Phase).To(Equal(corev1.ClaimBound), "iSCSI PVC should be bound")
+
 		By("Writing test data to NFS volume")
 		_, err = f.K8s.ExecInPod(ctx, pod.Name, []string{"sh", "-c", "echo 'NFS test data' > /data-nfs/test.txt"})
 		Expect(err).NotTo(HaveOccurred(), "Failed to write to NFS volume")
@@ -91,6 +107,10 @@ var _ = Describe("Dual Mount", func() {
 		By("Writing test data to NVMe-oF volume")
 		_, err = f.K8s.ExecInPod(ctx, pod.Name, []string{"sh", "-c", "echo 'NVMe-oF test data' > /data-nvmeof/test.txt && sync"})
 		Expect(err).NotTo(HaveOccurred(), "Failed to write to NVMe-oF volume")
+
+		By("Writing test data to iSCSI volume")
+		_, err = f.K8s.ExecInPod(ctx, pod.Name, []string{"sh", "-c", "echo 'iSCSI test data' > /data-iscsi/test.txt && sync"})
+		Expect(err).NotTo(HaveOccurred(), "Failed to write to iSCSI volume")
 
 		By("Reading and verifying NFS data")
 		nfsData, err := f.K8s.ExecInPod(ctx, pod.Name, []string{"cat", "/data-nfs/test.txt"})
@@ -102,10 +122,19 @@ var _ = Describe("Dual Mount", func() {
 		Expect(err).NotTo(HaveOccurred(), "Failed to read from NVMe-oF volume")
 		Expect(nvmeData).To(ContainSubstring("NVMe-oF test data"), "NVMe-oF data mismatch")
 
-		By("Verifying volume isolation - NFS file should not exist on NVMe-oF")
+		By("Reading and verifying iSCSI data")
+		iscsiData, err := f.K8s.ExecInPod(ctx, pod.Name, []string{"cat", "/data-iscsi/test.txt"})
+		Expect(err).NotTo(HaveOccurred(), "Failed to read from iSCSI volume")
+		Expect(iscsiData).To(ContainSubstring("iSCSI test data"), "iSCSI data mismatch")
+
+		By("Verifying volume isolation - NFS file should not exist on block volumes")
 		exists, err := f.K8s.FileExistsInPod(ctx, pod.Name, "/data-nvmeof/test.txt.nfs")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(exists).To(BeFalse(), "Unexpected cross-volume file access")
+		Expect(exists).To(BeFalse(), "Unexpected cross-volume file access on NVMe-oF")
+
+		exists, err = f.K8s.FileExistsInPod(ctx, pod.Name, "/data-iscsi/test.txt.nfs")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(exists).To(BeFalse(), "Unexpected cross-volume file access on iSCSI")
 
 		By("Verifying NFS filesystem type")
 		mountOutput, err := f.K8s.ExecInPod(ctx, pod.Name, []string{"sh", "-c", "mount | grep /data-nfs"})
@@ -117,11 +146,24 @@ var _ = Describe("Dual Mount", func() {
 		Expect(err).NotTo(HaveOccurred(), "Failed to check NVMe-oF mount")
 		// NVMe-oF volumes are formatted with ext4 by default
 		Expect(mountOutput).To(ContainSubstring("ext4"), "Expected ext4 filesystem on NVMe-oF volume")
+
+		By("Verifying iSCSI filesystem type")
+		mountOutput, err = f.K8s.ExecInPod(ctx, pod.Name, []string{"sh", "-c", "mount | grep /data-iscsi"})
+		Expect(err).NotTo(HaveOccurred(), "Failed to check iSCSI mount")
+		// iSCSI volumes are formatted with ext4 by default
+		Expect(mountOutput).To(ContainSubstring("ext4"), "Expected ext4 filesystem on iSCSI volume")
+
+		if f.Verbose() {
+			GinkgoWriter.Printf("Multi-protocol mount test completed successfully\n")
+			GinkgoWriter.Printf("  - NFS volume mounted and verified\n")
+			GinkgoWriter.Printf("  - NVMe-oF volume mounted and verified\n")
+			GinkgoWriter.Printf("  - iSCSI volume mounted and verified\n")
+		}
 	})
 })
 
-// createDualMountPod creates a pod with both NFS and NVMe-oF volumes mounted.
-func createDualMountPod(ctx context.Context, f *framework.Framework, name, nfsPVCName, nvmeofPVCName string) (*corev1.Pod, error) {
+// createMultiMountPod creates a pod with NFS, NVMe-oF, and iSCSI volumes mounted.
+func createMultiMountPod(ctx context.Context, f *framework.Framework, name, nfsPVCName, nvmeofPVCName, iscsiPVCName string) (*corev1.Pod, error) {
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -142,6 +184,10 @@ func createDualMountPod(ctx context.Context, f *framework.Framework, name, nfsPV
 							Name:      "nvmeof-volume",
 							MountPath: "/data-nvmeof",
 						},
+						{
+							Name:      "iscsi-volume",
+							MountPath: "/data-iscsi",
+						},
 					},
 				},
 			},
@@ -159,6 +205,14 @@ func createDualMountPod(ctx context.Context, f *framework.Framework, name, nfsPV
 					VolumeSource: corev1.VolumeSource{
 						PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
 							ClaimName: nvmeofPVCName,
+						},
+					},
+				},
+				{
+					Name: "iscsi-volume",
+					VolumeSource: corev1.VolumeSource{
+						PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+							ClaimName: iscsiPVCName,
 						},
 					},
 				},
