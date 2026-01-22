@@ -282,6 +282,10 @@ func (c *Client) connect() error {
 		return fmt.Errorf("failed to dial: %w", err)
 	}
 
+	// Set read limit to 1MB to handle large TrueNAS responses (e.g., dataset lists)
+	// Default is 32KB which is too small for production workloads
+	conn.SetReadLimit(1024 * 1024)
+
 	// Note: coder/websocket handles ping/pong automatically via the underlying connection.
 	// We still run our own ping loop for connection health monitoring and metrics.
 
@@ -531,10 +535,10 @@ func (c *Client) readLoop() {
 	defer c.cleanupReadLoop()
 
 	for {
-		// Use context with timeout for read operations (replaces SetReadDeadline)
-		ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
-		_, rawMsg, err := c.conn.Read(ctx)
-		cancel()
+		// Use background context - connection health is monitored by pingLoop.
+		// We don't timeout reads because idle periods are normal (no pending requests).
+		// The read will return when: data arrives, connection closes, or error occurs.
+		_, rawMsg, err := c.conn.Read(context.Background())
 
 		if err != nil {
 			if c.handleReadError(err) {
@@ -716,8 +720,12 @@ func (c *Client) pingLoop() {
 		select {
 		case <-ticker.C:
 			c.mu.Lock()
-			if c.closed || c.conn == nil {
+			if c.closed || c.conn == nil || c.reconnecting {
 				c.mu.Unlock()
+				if c.reconnecting {
+					// Skip ping during reconnection - connection is being replaced
+					continue
+				}
 				return
 			}
 
