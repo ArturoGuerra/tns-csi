@@ -38,7 +38,7 @@ var _ = Describe("Metrics and Observability", func() {
 		ctx := context.Background()
 
 		By("Getting controller pod")
-		pods, err := f.K8s.GetPodsWithLabel(ctx, "kube-system", "app=tns-csi-controller")
+		pods, err := f.K8s.GetPodsWithLabel(ctx, "kube-system", "app.kubernetes.io/name=tns-csi-driver,app.kubernetes.io/component=controller")
 		Expect(err).NotTo(HaveOccurred(), "Failed to get controller pods")
 		Expect(pods).NotTo(BeEmpty(), "No controller pods found")
 
@@ -96,7 +96,7 @@ var _ = Describe("Metrics and Observability", func() {
 		ctx := context.Background()
 
 		By("Getting node pods")
-		pods, err := f.K8s.GetPodsWithLabel(ctx, "kube-system", "app=tns-csi-node")
+		pods, err := f.K8s.GetPodsWithLabel(ctx, "kube-system", "app.kubernetes.io/name=tns-csi-driver,app.kubernetes.io/component=node")
 		Expect(err).NotTo(HaveOccurred(), "Failed to get node pods")
 		Expect(pods).NotTo(BeEmpty(), "No node pods found")
 
