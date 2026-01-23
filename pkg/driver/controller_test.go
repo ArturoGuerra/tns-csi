@@ -2506,6 +2506,7 @@ func TestCheckAndAdoptVolume_AdoptableVolumeFound(t *testing.T) {
 	}
 	if resp == nil {
 		t.Fatal("checkAndAdoptVolume() expected non-nil response")
+		return // Unreachable, but makes control flow explicit for staticcheck
 	}
 	if resp.Volume.VolumeId != "pvc-adoptable" {
 		t.Errorf("Expected volume ID 'pvc-adoptable', got '%s'", resp.Volume.VolumeId)

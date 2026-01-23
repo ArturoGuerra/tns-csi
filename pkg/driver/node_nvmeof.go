@@ -193,16 +193,16 @@ func (s *NodeService) connectAndStageDevice(ctx context.Context, params *nvmeOFC
 
 	var lastErr error
 	for attempt := 1; attempt <= maxConnectRetries; attempt++ {
-		// Check if parent context is cancelled before starting new attempt
+		// Check if parent context is canceled before starting new attempt.
 		// This allows graceful termination while not letting context cancellation
-		// cascade into our internal operations
+		// cascade into our internal operations.
 		select {
 		case <-ctx.Done():
-			klog.Warningf("Parent context cancelled, stopping NVMe-oF connection attempts at attempt %d: %v", attempt, ctx.Err())
+			klog.Warningf("Parent context canceled, stopping NVMe-oF connection attempts at attempt %d: %v", attempt, ctx.Err())
 			if lastErr != nil {
-				return nil, status.Errorf(codes.DeadlineExceeded, "NVMe-oF connection cancelled after %d attempts (last error: %v)", attempt-1, lastErr)
+				return nil, status.Errorf(codes.DeadlineExceeded, "NVMe-oF connection canceled after %d attempts (last error: %v)", attempt-1, lastErr)
 			}
-			return nil, status.Errorf(codes.DeadlineExceeded, "NVMe-oF connection cancelled: %v", ctx.Err())
+			return nil, status.Errorf(codes.DeadlineExceeded, "NVMe-oF connection canceled: %v", ctx.Err())
 		default:
 		}
 
@@ -210,11 +210,14 @@ func (s *NodeService) connectAndStageDevice(ctx context.Context, params *nvmeOFC
 			klog.Infof("Retrying NVMe-oF connection (attempt %d/%d) for NQN: %s", attempt, maxConnectRetries, params.nqn)
 		}
 
-		// Use background context for internal operations to avoid cascading context cancellation
-		// Each operation has its own timeout
+		// Use a detached context for internal operations to prevent the CSI sidecar's
+		// context deadline from causing cascading failures in our retry loop.
+		// Each operation (connect, state wait, device wait) has its own timeout.
+		// This is intentional - we check ctx.Done() at the start of each attempt instead.
 		opCtx := context.Background()
 
 		// Step 1: Connect to NVMe-oF target
+		//nolint:contextcheck // Intentionally using detached context - see comment above
 		if connectErr := s.connectNVMeOFTarget(opCtx, params); connectErr != nil {
 			lastErr = connectErr
 			klog.Warningf("NVMe-oF connect attempt %d failed: %v", attempt, connectErr)
@@ -227,11 +230,13 @@ func (s *NodeService) connectAndStageDevice(ctx context.Context, params *nvmeOFC
 		// Step 2: Wait for subsystem to become "live" (critical for reliability)
 		// This is what democratic-csi does - it blocks until state == "live" before looking for devices
 		klog.V(4).Infof("Waiting for subsystem %s to become live...", params.nqn)
+		//nolint:contextcheck // Intentionally using detached context - see comment above
 		if stateErr := waitForSubsystemLive(opCtx, params.nqn, stateWaitTimeout); stateErr != nil {
 			lastErr = stateErr
 			klog.Warningf("NVMe-oF subsystem %s did not become live on attempt %d: %v", params.nqn, attempt, stateErr)
 
 			// Disconnect before retry
+			//nolint:contextcheck // Intentionally using detached context - see comment above
 			if disconnectErr := s.disconnectNVMeOF(opCtx, params.nqn); disconnectErr != nil {
 				klog.Warningf("Failed to disconnect after subsystem state timeout: %v", disconnectErr)
 			}
@@ -244,6 +249,7 @@ func (s *NodeService) connectAndStageDevice(ctx context.Context, params *nvmeOFC
 		}
 
 		// Step 3: Wait for device path to appear (NSID is always 1 with independent subsystems)
+		//nolint:contextcheck // Intentionally using detached context - see comment above
 		devicePath, err := s.waitForNVMeDevice(opCtx, params.nqn, deviceWaitTimeout)
 		if err == nil {
 			klog.Infof("NVMe-oF device connected at %s (NQN: %s, dataset: %s) on attempt %d",
@@ -256,6 +262,7 @@ func (s *NodeService) connectAndStageDevice(ctx context.Context, params *nvmeOFC
 		klog.Warningf("NVMe-oF device wait failed on attempt %d: %v", attempt, err)
 
 		// Disconnect before retry (or final cleanup)
+		//nolint:contextcheck // Intentionally using detached context - see comment above
 		if disconnectErr := s.disconnectNVMeOF(opCtx, params.nqn); disconnectErr != nil {
 			klog.Warningf("Failed to disconnect NVMe-oF after device wait failure: %v", disconnectErr)
 		}
