@@ -254,8 +254,31 @@ func (s *NodeService) connectAndStageDevice(ctx context.Context, params *nvmeOFC
 		if err == nil {
 			klog.Infof("NVMe-oF device connected at %s (NQN: %s, dataset: %s) on attempt %d",
 				devicePath, params.nqn, datasetName, attempt)
+
+			// Try staging - if device becomes unavailable during staging, retry the whole connection
 			// Use original context for staging since that's the actual CSI operation
-			return s.stageNVMeDevice(ctx, volumeID, devicePath, stagingTargetPath, volumeCapability, isBlockVolume, volumeContext)
+			stageResp, stageErr := s.stageNVMeDevice(ctx, volumeID, devicePath, stagingTargetPath, volumeCapability, isBlockVolume, volumeContext)
+			if stageErr == nil {
+				return stageResp, nil
+			}
+
+			// Check if this is a retryable error (device disappeared during staging)
+			if status.Code(stageErr) == codes.Unavailable {
+				lastErr = stageErr
+				klog.Warningf("NVMe-oF staging failed on attempt %d (device unstable): %v", attempt, stageErr)
+				// Disconnect and retry - the device may have become stale
+				//nolint:contextcheck // Intentionally using detached context
+				if disconnectErr := s.disconnectNVMeOF(opCtx, params.nqn); disconnectErr != nil {
+					klog.Warningf("Failed to disconnect after staging failure: %v", disconnectErr)
+				}
+				if attempt < maxConnectRetries {
+					time.Sleep(retryDelay)
+				}
+				continue
+			}
+
+			// Non-retryable error - fail immediately
+			return nil, stageErr
 		}
 
 		lastErr = err
@@ -671,6 +694,14 @@ func (s *NodeService) formatAndMountNVMeDevice(ctx context.Context, volumeID, de
 	nqn := volumeContext["nqn"]
 	klog.V(4).Infof("Formatting and mounting NVMe device: device=%s, path=%s, volume=%s, dataset=%s, NQN=%s",
 		devicePath, stagingTargetPath, volumeID, datasetName, nqn)
+
+	// Verify device still exists before proceeding (it may have disappeared due to race conditions
+	// with previous volume cleanup or controller reconnection)
+	if _, err := os.Stat(devicePath); err != nil {
+		klog.Warningf("NVMe device %s disappeared before staging could complete: %v", devicePath, err)
+		return nil, status.Errorf(codes.Unavailable,
+			"NVMe device %s became unavailable: %v", devicePath, err)
+	}
 
 	// Log device information for troubleshooting
 	s.logDeviceInfo(ctx, devicePath)
@@ -1232,6 +1263,10 @@ func (s *NodeService) verifyDeviceSize(ctx context.Context, devicePath string, v
 	// Get actual device size
 	actualSize, err := getBlockDeviceSize(ctx, devicePath)
 	if err != nil {
+		// Check if device disappeared (common during cleanup race conditions)
+		if _, statErr := os.Stat(devicePath); statErr != nil {
+			return status.Errorf(codes.Unavailable, "device %s became unavailable: %v", devicePath, err)
+		}
 		return err
 	}
 	klog.V(4).Infof("Device %s (dataset: %s) actual size: %d bytes (%d GiB)", devicePath, datasetName, actualSize, actualSize/(1024*1024*1024))
