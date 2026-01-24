@@ -595,7 +595,7 @@ By default, when you restore a volume from a snapshot, the new volume is a ZFS c
 
 #### How to Use Detached Clones
 
-1. **Create a StorageClass with `detached: "true"`**:
+1. **Create a StorageClass with `detachedVolumesFromSnapshots: "true"`**:
 
 ```yaml
 apiVersion: storage.k8s.io/v1
@@ -608,7 +608,7 @@ parameters:
   pool: tank
   server: truenas.local
   # Enable detached clones - clones will be promoted to be independent
-  detached: "true"
+  detachedVolumesFromSnapshots: "true"
 allowVolumeExpansion: true
 reclaimPolicy: Delete
 ```
@@ -758,7 +758,7 @@ parameters:
   pool: tank
   server: truenas.local
   subsystemNQN: nqn.2025-01.com.truenas:csi
-  detached: "true"
+  detachedVolumesFromSnapshots: "true"
 allowVolumeExpansion: true
 reclaimPolicy: Delete
 ```
