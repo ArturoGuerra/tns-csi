@@ -28,9 +28,7 @@ on:
           - regular-snapshot
           - detached-snapshot
           - snapshot-restore-cow
-          - snapshot-restore-promoted
           - volume-clone-cow
-          - volume-clone-promoted
 
 # Restrict permissions to minimum required
 permissions:
@@ -171,37 +169,6 @@ jobs:
           echo "=== NFS: Snapshot Restore (COW clone - space efficient) ==="
           ginkgo -v --focus="Snapshot Restore" ./tests/e2e/nfs/...
 
-  nfs-snapshot-restore-promoted:
-    name: "NFS: Snapshot Restore (promoted/independent)"
-    runs-on: new
-    timeout-minutes: 15
-    needs: compute-tag
-    if: |
-      !cancelled() && needs.compute-tag.result == 'success' &&
-      (github.event.inputs.protocol == '' || github.event.inputs.protocol == 'nfs') &&
-      (github.event.inputs.scenario == '' || github.event.inputs.scenario == 'snapshot-restore-promoted')
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-      - uses: fenio/setup-k3s@v5
-        with:
-          k3s-args: '--write-kubeconfig-mode 644 --disable=traefik --disable=local-storage'
-      - uses: ./.github/actions/setup-snapshots
-      - name: Install Ginkgo
-        run: go install github.com/onsi/ginkgo/v2/ginkgo@latest
-      - name: Run Test
-        env:
-          TRUENAS_HOST: ${{ secrets.TRUENAS_HOST }}
-          TRUENAS_API_KEY: ${{ secrets.TRUENAS_API_KEY }}
-          TRUENAS_POOL: ${{ secrets.TRUENAS_POOL }}
-          CSI_IMAGE_TAG: ${{ needs.compute-tag.outputs.image_tag }}
-          KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-        run: |
-          echo "=== NFS: Snapshot Restore with detachedVolumesFromSnapshots=true (promoted clone) ==="
-          ginkgo -v --focus="detached clone that survives snapshot deletion" ./tests/e2e/nfs/...
-
   nfs-volume-clone-cow:
     name: "NFS: Volume Clone (COW)"
     runs-on: new
@@ -330,37 +297,6 @@ jobs:
           echo "=== NVMe-oF: Snapshot Restore (COW clone - space efficient) ==="
           ginkgo -v --focus="Snapshot Restore" ./tests/e2e/nvmeof/...
 
-  nvmeof-snapshot-restore-promoted:
-    name: "NVMe-oF: Snapshot Restore (promoted/independent)"
-    runs-on: new
-    timeout-minutes: 20
-    needs: compute-tag
-    if: |
-      !cancelled() && needs.compute-tag.result == 'success' &&
-      (github.event.inputs.protocol == '' || github.event.inputs.protocol == 'nvmeof') &&
-      (github.event.inputs.scenario == '' || github.event.inputs.scenario == 'snapshot-restore-promoted')
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-      - uses: fenio/setup-k3s@v5
-        with:
-          k3s-args: '--write-kubeconfig-mode 644 --disable=traefik --disable=local-storage'
-      - uses: ./.github/actions/setup-snapshots
-      - name: Install Ginkgo
-        run: go install github.com/onsi/ginkgo/v2/ginkgo@latest
-      - name: Run Test
-        env:
-          TRUENAS_HOST: ${{ secrets.TRUENAS_HOST }}
-          TRUENAS_API_KEY: ${{ secrets.TRUENAS_API_KEY }}
-          TRUENAS_POOL: ${{ secrets.TRUENAS_POOL }}
-          CSI_IMAGE_TAG: ${{ needs.compute-tag.outputs.image_tag }}
-          KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-        run: |
-          echo "=== NVMe-oF: Snapshot Restore with detachedVolumesFromSnapshots=true (promoted clone) ==="
-          ginkgo -v --focus="detached clone that survives snapshot deletion" ./tests/e2e/nvmeof/...
-
   nvmeof-volume-clone-cow:
     name: "NVMe-oF: Volume Clone (COW)"
     runs-on: new
@@ -458,37 +394,6 @@ jobs:
           echo "=== iSCSI: Detached Snapshot (survives source deletion) ==="
           ginkgo -v --focus="Detached Snapshot" ./tests/e2e/iscsi/...
 
-  iscsi-snapshot-restore-promoted:
-    name: "iSCSI: Snapshot Restore (promoted/independent)"
-    runs-on: new
-    timeout-minutes: 20
-    needs: compute-tag
-    if: |
-      !cancelled() && needs.compute-tag.result == 'success' &&
-      (github.event.inputs.protocol == '' || github.event.inputs.protocol == 'iscsi') &&
-      (github.event.inputs.scenario == '' || github.event.inputs.scenario == 'snapshot-restore-promoted')
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-      - uses: fenio/setup-k3s@v5
-        with:
-          k3s-args: '--write-kubeconfig-mode 644 --disable=traefik --disable=local-storage'
-      - uses: ./.github/actions/setup-snapshots
-      - name: Install Ginkgo
-        run: go install github.com/onsi/ginkgo/v2/ginkgo@latest
-      - name: Run Test
-        env:
-          TRUENAS_HOST: ${{ secrets.TRUENAS_HOST }}
-          TRUENAS_API_KEY: ${{ secrets.TRUENAS_API_KEY }}
-          TRUENAS_POOL: ${{ secrets.TRUENAS_POOL }}
-          CSI_IMAGE_TAG: ${{ needs.compute-tag.outputs.image_tag }}
-          KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-        run: |
-          echo "=== iSCSI: Snapshot Restore with detachedVolumesFromSnapshots=true (promoted clone) ==="
-          ginkgo -v --focus="detached clone that survives snapshot deletion" ./tests/e2e/iscsi/...
-
   iscsi-volume-clone-cow:
     name: "iSCSI: Volume Clone (COW)"
     runs-on: new
@@ -532,16 +437,13 @@ jobs:
       - nfs-regular-snapshot
       - nfs-detached-snapshot
       - nfs-snapshot-restore-cow
-      - nfs-snapshot-restore-promoted
       - nfs-volume-clone-cow
       - nvmeof-regular-snapshot
       - nvmeof-detached-snapshot
       - nvmeof-snapshot-restore-cow
-      - nvmeof-snapshot-restore-promoted
       - nvmeof-volume-clone-cow
       - iscsi-regular-snapshot
       - iscsi-detached-snapshot
-      - iscsi-snapshot-restore-promoted
       - iscsi-volume-clone-cow
     if: always()
     steps:
@@ -560,17 +462,12 @@ jobs:
                 'NVMe-oF': '${{ needs.nvmeof-detached-snapshot.result }}',
                 'iSCSI': '${{ needs.iscsi-detached-snapshot.result }}',
               },
-              'Snapshot Restore (COW)': {
+              'Snapshot Restore': {
                 'NFS': '${{ needs.nfs-snapshot-restore-cow.result }}',
                 'NVMe-oF': '${{ needs.nvmeof-snapshot-restore-cow.result }}',
                 'iSCSI': 'skipped',
               },
-              'Snapshot Restore (Promoted)': {
-                'NFS': '${{ needs.nfs-snapshot-restore-promoted.result }}',
-                'NVMe-oF': '${{ needs.nvmeof-snapshot-restore-promoted.result }}',
-                'iSCSI': '${{ needs.iscsi-snapshot-restore-promoted.result }}',
-              },
-              'Volume Clone (COW)': {
+              'Volume Clone': {
                 'NFS': '${{ needs.nfs-volume-clone-cow.result }}',
                 'NVMe-oF': '${{ needs.nvmeof-volume-clone-cow.result }}',
                 'iSCSI': '${{ needs.iscsi-volume-clone-cow.result }}',
@@ -610,11 +507,10 @@ jobs:
             summary += `- :no_entry: Cancelled\n`;
 
             summary += `\n## Terminology\n`;
-            summary += `- **Regular Snapshot**: Standard ZFS COW snapshot (depends on source)\n`;
+            summary += `- **Regular Snapshot**: Standard ZFS COW snapshot (depends on source volume)\n`;
             summary += `- **Detached Snapshot**: Independent copy via zfs send/receive (survives source deletion)\n`;
-            summary += `- **Snapshot Restore (COW)**: Clone from snapshot with dependency preserved (space efficient)\n`;
-            summary += `- **Snapshot Restore (Promoted)**: Clone from snapshot, then promoted (independent)\n`;
-            summary += `- **Volume Clone (COW)**: Clone from volume via temp snapshot (dependency preserved)\n`;
+            summary += `- **Snapshot Restore**: Clone from snapshot (space efficient, snapshot cannot be deleted while clone exists)\n`;
+            summary += `- **Volume Clone**: Clone from volume via temp snapshot (space efficient, shares blocks with source)\n`;
 
             await core.summary.addRaw(summary).write();
 

@@ -54,6 +54,11 @@ type VolumeDetails struct {
 	ContentSourceType string `json:"contentSourceType,omitempty" yaml:"contentSourceType,omitempty"`
 	ContentSourceID   string `json:"contentSourceId,omitempty"   yaml:"contentSourceId,omitempty"`
 
+	// Clone dependency info (if this is a clone)
+	CloneMode      string `json:"cloneMode,omitempty"      yaml:"cloneMode,omitempty"`      // cow, promoted, or detached
+	OriginSnapshot string `json:"originSnapshot,omitempty" yaml:"originSnapshot,omitempty"` // ZFS origin for COW clones
+	ZFSOrigin      string `json:"zfsOrigin,omitempty"      yaml:"zfsOrigin,omitempty"`      // Actual ZFS origin property
+
 	// NFS-specific (only if protocol is NFS)
 	NFSShare *NFSShareDetails `json:"nfsShare,omitempty" yaml:"nfsShare,omitempty"`
 
@@ -206,6 +211,10 @@ func getVolumeDetails(ctx context.Context, client tnsapi.ClientInterface, volume
 			details.ContentSourceType = prop.Value
 		case tnsapi.PropertyContentSourceID:
 			details.ContentSourceID = prop.Value
+		case tnsapi.PropertyCloneMode:
+			details.CloneMode = prop.Value
+		case tnsapi.PropertyOriginSnapshot:
+			details.OriginSnapshot = prop.Value
 		}
 	}
 
@@ -350,13 +359,44 @@ func outputVolumeDetailsTable(details *VolumeDetails) error {
 	_, _ = fmt.Fprintf(w, "Delete Strategy:\t%s\n", details.DeleteStrategy)
 	//nolint:errcheck // writing to tabwriter for stdout
 	_, _ = fmt.Fprintf(w, "Adoptable:\t%v\n", details.Adoptable)
-	if details.ContentSourceType != "" {
-		//nolint:errcheck // writing to tabwriter for stdout
-		_, _ = fmt.Fprintf(w, "Clone Source:\t%s:%s\n", details.ContentSourceType, details.ContentSourceID)
-	}
 	//nolint:errcheck // flushing tabwriter for stdout
 	_ = w.Flush()
 	fmt.Println()
+
+	// Clone info (if this volume was created from a snapshot or volume)
+	if details.ContentSourceType != "" || details.CloneMode != "" {
+		fmt.Println("=== Clone Info ===")
+		w = tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		if details.ContentSourceType != "" {
+			//nolint:errcheck // writing to tabwriter for stdout
+			_, _ = fmt.Fprintf(w, "Source Type:\t%s\n", details.ContentSourceType)
+			//nolint:errcheck // writing to tabwriter for stdout
+			_, _ = fmt.Fprintf(w, "Source ID:\t%s\n", details.ContentSourceID)
+		}
+		if details.CloneMode != "" {
+			//nolint:errcheck // writing to tabwriter for stdout
+			_, _ = fmt.Fprintf(w, "Clone Mode:\t%s\n", details.CloneMode)
+			// Explain the dependency based on clone mode
+			switch details.CloneMode {
+			case tnsapi.CloneModeCOW:
+				//nolint:errcheck // writing to tabwriter for stdout
+				_, _ = fmt.Fprintf(w, "Dependency:\tCLONE depends on SNAPSHOT (snapshot cannot be deleted)\n")
+				if details.OriginSnapshot != "" {
+					//nolint:errcheck // writing to tabwriter for stdout
+					_, _ = fmt.Fprintf(w, "Origin Snapshot:\t%s\n", details.OriginSnapshot)
+				}
+			case tnsapi.CloneModePromoted:
+				//nolint:errcheck // writing to tabwriter for stdout
+				_, _ = fmt.Fprintf(w, "Dependency:\tSNAPSHOT depends on CLONE (snapshot CAN be deleted)\n")
+			case tnsapi.CloneModeDetached:
+				//nolint:errcheck // writing to tabwriter for stdout
+				_, _ = fmt.Fprintf(w, "Dependency:\tNone (fully independent copy via send/receive)\n")
+			}
+		}
+		//nolint:errcheck // flushing tabwriter for stdout
+		_ = w.Flush()
+		fmt.Println()
+	}
 
 	// Protocol-specific details
 	if details.NFSShare != nil {

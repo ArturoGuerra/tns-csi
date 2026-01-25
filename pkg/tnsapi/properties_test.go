@@ -43,6 +43,8 @@ func TestPropertyNames(t *testing.T) {
 		// Clone properties
 		PropertyContentSourceType,
 		PropertyContentSourceID,
+		PropertyCloneMode,
+		PropertyOriginSnapshot,
 		// Legacy
 		PropertyProvisionedAt,
 	}
@@ -456,6 +458,8 @@ func TestPropertyConstants(t *testing.T) {
 		// Clone properties
 		PropertyContentSourceType,
 		PropertyContentSourceID,
+		PropertyCloneMode,
+		PropertyOriginSnapshot,
 		// Legacy
 		PropertyProvisionedAt,
 	}

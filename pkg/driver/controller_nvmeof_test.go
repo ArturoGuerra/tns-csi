@@ -1059,7 +1059,11 @@ func TestSetupNVMeOFVolumeFromClone(t *testing.T) {
 
 			controller := NewControllerService(mockClient, NewNodeRegistry())
 			// Note: subsystemNQN parameter is ignored in the new architecture - NQN is generated from volume name
-			resp, err := controller.setupNVMeOFVolumeFromClone(ctx, tt.req, tt.zvol, tt.server, "", "snapshot-id")
+			testCloneInfo := &cloneInfo{
+				Mode:       "cow",
+				SnapshotID: "snapshot-id",
+			}
+			resp, err := controller.setupNVMeOFVolumeFromClone(ctx, tt.req, tt.zvol, tt.server, "", testCloneInfo)
 
 			if tt.wantErr {
 				if err == nil {

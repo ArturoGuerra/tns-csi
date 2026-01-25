@@ -661,8 +661,8 @@ func (s *ControllerService) deleteNFSVolume(ctx context.Context, meta *VolumeMet
 }
 
 // setupNFSVolumeFromClone sets up an NFS share for a cloned dataset.
-func (s *ControllerService) setupNFSVolumeFromClone(ctx context.Context, req *csi.CreateVolumeRequest, dataset *tnsapi.Dataset, server, snapshotID string) (*csi.CreateVolumeResponse, error) {
-	klog.V(4).Infof("Setting up NFS share for cloned dataset: %s", dataset.Name)
+func (s *ControllerService) setupNFSVolumeFromClone(ctx context.Context, req *csi.CreateVolumeRequest, dataset *tnsapi.Dataset, server string, info *cloneInfo) (*csi.CreateVolumeResponse, error) {
+	klog.V(4).Infof("Setting up NFS share for cloned dataset: %s (cloneMode: %s)", dataset.Name, info.Mode)
 
 	volumeName := req.GetName()
 
@@ -710,8 +710,8 @@ func (s *ControllerService) setupNFSVolumeFromClone(ctx context.Context, req *cs
 		PVCNamespace:   params["csi.storage.k8s.io/pvc/namespace"],
 		StorageClass:   params["csi.storage.k8s.io/sc/name"],
 	})
-	// Add clone-specific properties
-	cloneProps := tnsapi.ClonedVolumeProperties(tnsapi.ContentSourceSnapshot, snapshotID)
+	// Add clone-specific properties (including clone mode for dependency tracking)
+	cloneProps := tnsapi.ClonedVolumePropertiesV2(tnsapi.ContentSourceSnapshot, info.SnapshotID, info.Mode, info.OriginSnapshot)
 	for k, v := range cloneProps {
 		props[k] = v
 	}
@@ -754,7 +754,7 @@ func (s *ControllerService) setupNFSVolumeFromClone(ctx context.Context, req *cs
 			ContentSource: &csi.VolumeContentSource{
 				Type: &csi.VolumeContentSource_Snapshot{
 					Snapshot: &csi.VolumeContentSource_SnapshotSource{
-						SnapshotId: snapshotID,
+						SnapshotId: info.SnapshotID,
 					},
 				},
 			},

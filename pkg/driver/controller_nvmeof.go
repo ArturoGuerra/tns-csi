@@ -960,8 +960,8 @@ func (s *ControllerService) deleteZVOL(ctx context.Context, meta *VolumeMetadata
 
 // setupNVMeOFVolumeFromClone sets up NVMe-oF infrastructure for a cloned ZVOL.
 // With independent subsystem architecture, creates a new subsystem for the clone.
-func (s *ControllerService) setupNVMeOFVolumeFromClone(ctx context.Context, req *csi.CreateVolumeRequest, zvol *tnsapi.Dataset, server, _, snapshotID string) (*csi.CreateVolumeResponse, error) {
-	klog.Infof("Setting up NVMe-oF namespace for cloned ZVOL: %s (from snapshot, type: %s)", zvol.Name, zvol.Type)
+func (s *ControllerService) setupNVMeOFVolumeFromClone(ctx context.Context, req *csi.CreateVolumeRequest, zvol *tnsapi.Dataset, server, _ string, info *cloneInfo) (*csi.CreateVolumeResponse, error) {
+	klog.Infof("Setting up NVMe-oF namespace for cloned ZVOL: %s (from snapshot, type: %s, cloneMode: %s)", zvol.Name, zvol.Type, info.Mode)
 
 	volumeName := req.GetName()
 	timer := metrics.NewVolumeOperationTimer(metrics.ProtocolNVMeOF, "clone")
@@ -1086,8 +1086,8 @@ func (s *ControllerService) setupNVMeOFVolumeFromClone(ctx context.Context, req 
 		PVCNamespace:   params["csi.storage.k8s.io/pvc/namespace"],
 		StorageClass:   params["csi.storage.k8s.io/sc/name"],
 	})
-	// Add clone source properties
-	for k, v := range tnsapi.ClonedVolumeProperties(tnsapi.ContentSourceSnapshot, snapshotID) {
+	// Add clone source properties (including clone mode for dependency tracking)
+	for k, v := range tnsapi.ClonedVolumePropertiesV2(tnsapi.ContentSourceSnapshot, info.SnapshotID, info.Mode, info.OriginSnapshot) {
 		props[k] = v
 	}
 	if err := s.apiClient.SetDatasetProperties(ctx, zvol.ID, props); err != nil {
@@ -1137,7 +1137,7 @@ func (s *ControllerService) setupNVMeOFVolumeFromClone(ctx context.Context, req 
 			ContentSource: &csi.VolumeContentSource{
 				Type: &csi.VolumeContentSource_Snapshot{
 					Snapshot: &csi.VolumeContentSource_SnapshotSource{
-						SnapshotId: snapshotID,
+						SnapshotId: info.SnapshotID,
 					},
 				},
 			},

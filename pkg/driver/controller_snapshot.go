@@ -17,22 +17,50 @@ import (
 	"k8s.io/klog/v2"
 )
 
-// Detached snapshot configuration constants.
+// Snapshot and clone configuration constants.
+//
+// Volume Clone Modes (StorageClass parameters):
+//
+// 1. Default (no parameter): Standard ZFS COW clone
+//   - Clone depends on snapshot (snapshot cannot be deleted while clone exists)
+//   - Most space-efficient, instant creation
+//
+// 2. promotedVolumesFromSnapshots/promotedVolumesFromVolumes = "true": ZFS clone + promote
+//   - Reversed dependency (source depends on clone after promotion)
+//   - Allows deleting the original snapshot, but clone cannot be deleted while source exists
+//   - Instant creation, useful for snapshot rotation
+//
+// 3. detachedVolumesFromSnapshots/detachedVolumesFromVolumes = "true": ZFS send/receive
+//   - Truly independent copy with NO dependency in either direction
+//   - Slower (full data copy), but complete independence
+//   - Both source and clone can be deleted in any order
 const (
 	// DetachedSnapshotsParam is the VolumeSnapshotClass parameter to enable detached snapshots.
 	// When true, snapshots are created via zfs send/receive as independent datasets.
 	DetachedSnapshotsParam = "detachedSnapshots"
 
-	// DetachedVolumesFromSnapshotsParam is the StorageClass parameter to create independent volumes
-	// when restoring from snapshots. When true, the clone is promoted to break the parent-child relationship.
-	// This is equivalent to democratic-csi's detachedVolumesFromSnapshots parameter.
+	// PromotedVolumesFromSnapshotsParam is the StorageClass parameter to create promoted clones
+	// when restoring from snapshots. Uses zfs clone + zfs promote.
+	// After promotion, the dependency is REVERSED: source depends on clone.
+	// This allows deleting the original snapshot, but the clone cannot be deleted
+	// while the source volume exists.
+	PromotedVolumesFromSnapshotsParam = "promotedVolumesFromSnapshots"
+
+	// PromotedVolumesFromVolumesParam is the StorageClass parameter to create promoted clones
+	// when cloning from volumes. Uses zfs clone + zfs promote on the temp snapshot.
+	// After promotion, the temp snapshot is deleted and dependency is reversed.
+	PromotedVolumesFromVolumesParam = "promotedVolumesFromVolumes"
+
+	// DetachedVolumesFromSnapshotsParam is the StorageClass parameter to create truly independent
+	// volumes when restoring from snapshots. Uses zfs send/receive for a full data copy.
+	// The resulting volume has NO dependency on the source snapshot.
+	// Slower than clone+promote but provides complete independence.
 	DetachedVolumesFromSnapshotsParam = "detachedVolumesFromSnapshots"
 
-	// DetachedVolumesFromVolumesParam is the StorageClass parameter to create independent volumes
-	// when cloning from other volumes. When true, the clone is promoted and the temporary snapshot
-	// is deleted. When false (default), the temporary snapshot is kept to maintain the COW clone
-	// relationship (more space-efficient but creates a dependency).
-	// This is equivalent to democratic-csi's detachedVolumesFromVolumes parameter.
+	// DetachedVolumesFromVolumesParam is the StorageClass parameter to create truly independent
+	// volumes when cloning from volumes. Uses zfs send/receive for a full data copy.
+	// The resulting volume has NO dependency on the source volume.
+	// Slower than clone+promote but provides complete independence.
 	DetachedVolumesFromVolumesParam = "detachedVolumesFromVolumes"
 
 	// VolumeSourceSnapshotPrefix is the prefix for temporary snapshots created during volume-to-volume
@@ -1210,33 +1238,76 @@ func (s *ControllerService) createVolumeFromSnapshot(ctx context.Context, req *c
 		return nil, validateErr
 	}
 
-	// Check if detached clone is requested (StorageClass parameter: detachedVolumesFromSnapshots)
-	// A detached clone is independent from the source snapshot (promoted)
-	// This matches democratic-csi's detachedVolumesFromSnapshots parameter
+	// Get request parameters for later use
 	params := req.GetParameters()
 	if params == nil {
 		params = make(map[string]string)
 	}
-	detachedClone := params[DetachedVolumesFromSnapshotsParam] == VolumeContextValueTrue
+
+	// Determine clone mode from StorageClass parameters:
+	// - detachedVolumesFromSnapshots=true: Use send/receive for truly independent copy
+	// - promotedVolumesFromSnapshots=true: Use clone+promote (reversed dependency)
+	// - default: Standard COW clone (clone depends on snapshot)
+	detachedMode := params[DetachedVolumesFromSnapshotsParam] == VolumeContextValueTrue
+	promotedMode := params[PromotedVolumesFromSnapshotsParam] == VolumeContextValueTrue
+
+	if detachedMode && promotedMode {
+		klog.Warningf("Both detachedVolumesFromSnapshots and promotedVolumesFromSnapshots are set; using detached mode")
+		promotedMode = false
+	}
 
 	// Clone/restore the snapshot based on source type and clone mode:
-	// 1. Detached snapshot (dataset) -> executeDetachedSnapshotRestore (always promoted)
-	// 2. Regular snapshot + detachedVolumesFromSnapshots=true -> executeDetachedSnapshotClone (promoted clone)
-	// 3. Regular snapshot + detachedVolumesFromSnapshots=false -> executeSnapshotClone (COW clone)
-	var clonedDataset *tnsapi.Dataset
-	var cloneErr error
+	//
+	// Source types:
+	// - Detached snapshot (stored as dataset) -> always use executeDetachedSnapshotRestore
+	// - Regular ZFS snapshot -> depends on clone mode
+	//
+	// Clone modes for regular snapshots:
+	// 1. detachedVolumesFromSnapshots=true -> executeDetachedVolumeClone (send/receive, truly independent)
+	// 2. promotedVolumesFromSnapshots=true -> executePromotedSnapshotClone (clone+promote, reversed dependency)
+	// 3. default -> executeSnapshotClone (COW clone, normal dependency)
+
+	// Determine clone mode: detachedSnapshotRestore, detached, promoted, or cow (default)
+	type cloneMode int
+	const (
+		cloneModeDetachedSnapshotRestore cloneMode = iota
+		cloneModeDetached
+		cloneModePromoted
+		cloneModeCOW
+	)
+
+	var mode cloneMode
 	switch {
 	case snapshotMeta.Detached:
+		mode = cloneModeDetachedSnapshotRestore
+	case detachedMode:
+		mode = cloneModeDetached
+	case promotedMode:
+		mode = cloneModePromoted
+	default:
+		mode = cloneModeCOW
+	}
+
+	var clonedDataset *tnsapi.Dataset
+	var cloneErr error
+
+	switch mode {
+	case cloneModeDetachedSnapshotRestore:
 		// Source is a detached snapshot (stored as a dataset, not a ZFS snapshot)
-		// We need to create a temp snapshot of the dataset, clone it, and promote
+		// We need to create a temp snapshot of the dataset, then clone from it
 		klog.Infof("Restoring volume %s from detached snapshot dataset %s", req.GetName(), snapshotMeta.DatasetName)
 		clonedDataset, cloneErr = s.executeDetachedSnapshotRestore(ctx, snapshotMeta, cloneParams)
-	case detachedClone:
-		// Source is a regular ZFS snapshot, but user wants a promoted (independent) clone
-		klog.Infof("Creating detached (promoted) clone for volume %s from snapshot", req.GetName())
-		clonedDataset, cloneErr = s.executeDetachedSnapshotClone(ctx, snapshotMeta, cloneParams)
-	default:
-		// Source is a regular ZFS snapshot, create a standard COW clone
+	case cloneModeDetached:
+		// User wants truly independent copy via send/receive
+		klog.Infof("Creating detached (send/receive) volume %s from snapshot (truly independent)", req.GetName())
+		clonedDataset, cloneErr = s.executeDetachedVolumeClone(ctx, snapshotMeta, cloneParams)
+	case cloneModePromoted:
+		// User wants clone+promote (reversed dependency, allows snapshot deletion)
+		klog.Infof("Creating promoted clone for volume %s from snapshot (reversed dependency)", req.GetName())
+		clonedDataset, cloneErr = s.executePromotedSnapshotClone(ctx, snapshotMeta, cloneParams)
+	case cloneModeCOW:
+		// Default: Standard COW clone (clone depends on snapshot)
+		klog.Infof("Creating COW clone for volume %s from snapshot (normal dependency)", req.GetName())
 		clonedDataset, cloneErr = s.executeSnapshotClone(ctx, snapshotMeta, cloneParams)
 	}
 	if cloneErr != nil {
@@ -1244,6 +1315,27 @@ func (s *ControllerService) createVolumeFromSnapshot(ctx context.Context, req *c
 	}
 	klog.Infof("Clone operation succeeded: dataset=%s, type=%s, mountpoint=%s",
 		clonedDataset.Name, clonedDataset.Type, clonedDataset.Mountpoint)
+
+	// Build clone info for property tracking
+	cloneInfoData := cloneInfo{
+		SnapshotID: snapshotID,
+	}
+	switch mode {
+	case cloneModeDetachedSnapshotRestore:
+		// Restore from detached snapshot creates a COW clone from a temp snapshot
+		cloneInfoData.Mode = tnsapi.CloneModeCOW
+		// The origin is the temp snapshot on the detached snapshot dataset
+		cloneInfoData.OriginSnapshot = snapshotMeta.DatasetName + "@csi-restore-for-" + req.GetName()
+	case cloneModeDetached:
+		cloneInfoData.Mode = tnsapi.CloneModeDetached
+		// No origin for detached clones (truly independent)
+	case cloneModePromoted:
+		cloneInfoData.Mode = tnsapi.CloneModePromoted
+		// Origin was the snapshot, but after promotion the dependency is reversed
+	case cloneModeCOW:
+		cloneInfoData.Mode = tnsapi.CloneModeCOW
+		cloneInfoData.OriginSnapshot = snapshotMeta.SnapshotName
+	}
 
 	// Wait for ZFS metadata sync for NVMe-oF volumes
 	s.waitForZFSSyncIfNVMeOF(snapshotMeta.Protocol)
@@ -1257,8 +1349,8 @@ func (s *ControllerService) createVolumeFromSnapshot(ctx context.Context, req *c
 	klog.Infof("Got volume parameters: server=%s, subsystemNQN=%s, protocol=%s", server, subsystemNQN, snapshotMeta.Protocol)
 
 	// Route to protocol-specific volume setup
-	klog.Infof("Routing to protocol-specific setup: protocol=%s", snapshotMeta.Protocol)
-	return s.setupVolumeFromClone(ctx, req, clonedDataset, snapshotMeta.Protocol, server, subsystemNQN, snapshotID)
+	klog.Infof("Routing to protocol-specific setup: protocol=%s, cloneMode=%s", snapshotMeta.Protocol, cloneInfoData.Mode)
+	return s.setupVolumeFromClone(ctx, req, clonedDataset, snapshotMeta.Protocol, server, subsystemNQN, &cloneInfoData)
 }
 
 // resolveSnapshotMetadata resolves missing metadata fields for compact format snapshots.
@@ -1338,6 +1430,17 @@ type cloneParameters struct {
 	parentDataset  string
 	newVolumeName  string
 	newDatasetName string
+}
+
+// cloneInfo holds metadata about how a clone was created.
+// This is passed to setup functions to record the clone mode in ZFS properties.
+type cloneInfo struct {
+	// Mode is the clone mode: "cow", "promoted", or "detached"
+	Mode string
+	// OriginSnapshot is the ZFS snapshot the clone was created from (for COW clones)
+	OriginSnapshot string
+	// SnapshotID is the CSI snapshot ID used as the source
+	SnapshotID string
 }
 
 // validateCloneParameters validates and extracts parameters needed for cloning.
@@ -1428,20 +1531,21 @@ func (s *ControllerService) executeSnapshotClone(ctx context.Context, snapshotMe
 	return clonedDataset, nil
 }
 
-// executeDetachedSnapshotClone performs a detached clone operation.
-// A detached clone is independent from its parent snapshot - it can exist even after
-// the original snapshot is deleted. This is achieved by:
-// 1. Creating a temporary snapshot of the source volume
-// 2. Cloning the snapshot to a new dataset
-// 3. Promoting the clone to break the parent-child relationship
-// 4. Deleting the temporary snapshot
+// executePromotedSnapshotClone creates a clone and promotes it, reversing the dependency.
+// After promotion:
+// - The source volume/snapshot depends on the clone (cannot delete clone while source exists)
+// - The original snapshot can be deleted (useful for snapshot rotation)
 //
-// This is useful when you want to create a completely independent copy of data
-// from a snapshot, without maintaining a dependency on the original snapshot.
-func (s *ControllerService) executeDetachedSnapshotClone(ctx context.Context, snapshotMeta *SnapshotMetadata, params *cloneParameters) (*tnsapi.Dataset, error) {
-	klog.Infof("Creating detached clone from snapshot %s to dataset %s", snapshotMeta.SnapshotName, params.newDatasetName)
+// This is a trade-off:
+// - Pro: Allows deleting the original snapshot
+// - Con: Clone cannot be deleted while source volume exists
+//
+// Note: For restore-from-snapshot, the dependency is reversed such that the SNAPSHOT
+// depends on the clone. This means deleting the clone will be blocked while the snapshot exists.
+func (s *ControllerService) executePromotedSnapshotClone(ctx context.Context, snapshotMeta *SnapshotMetadata, params *cloneParameters) (*tnsapi.Dataset, error) {
+	klog.Infof("Creating promoted clone from snapshot %s to dataset %s", snapshotMeta.SnapshotName, params.newDatasetName)
 
-	// Step 1: Clone the snapshot to the new dataset
+	// Step 1: Clone the snapshot (same as regular clone)
 	cloneParams := tnsapi.CloneSnapshotParams{
 		Snapshot: snapshotMeta.SnapshotName,
 		Dataset:  params.newDatasetName,
@@ -1449,29 +1553,102 @@ func (s *ControllerService) executeDetachedSnapshotClone(ctx context.Context, sn
 
 	clonedDataset, err := s.apiClient.CloneSnapshot(ctx, cloneParams)
 	if err != nil {
-		klog.Errorf("Failed to clone snapshot for detached clone: %v", err)
+		klog.Errorf("Failed to clone snapshot for promotion: %v", err)
 		s.cleanupPartialClone(ctx, params.newDatasetName)
 		return nil, status.Errorf(codes.Internal, "Failed to clone snapshot: %v", err)
 	}
 
-	klog.Infof("Clone created, now promoting dataset to make it independent: %s", clonedDataset.Name)
+	klog.V(4).Infof("Clone created: %s, now promoting to reverse dependency", clonedDataset.Name)
 
-	// Step 2: Promote the clone to break the parent-child relationship
-	// After promotion, the clone becomes independent of the source snapshot.
-	// NOTE: This reverses the ZFS dependency - the source volume will depend on the clone.
-	// This means the clone cannot be deleted while the source volume exists.
-	// Users who want snapshot rotation (delete old snapshots, keep clones) benefit from this.
-	// The test cleanup order must account for this: delete source before clone.
-	if err := s.apiClient.PromoteDataset(ctx, clonedDataset.Name); err != nil {
-		klog.Errorf("Failed to promote cloned dataset %s: %v. Cleaning up...", clonedDataset.Name, err)
-		// Cleanup the clone since promotion failed
-		if delErr := s.apiClient.DeleteDataset(ctx, clonedDataset.Name); delErr != nil {
-			klog.Errorf("Failed to cleanup cloned dataset after promotion failure: %v", delErr)
+	// Step 2: Promote the clone to reverse the dependency
+	// After promotion: snapshot depends on clone (clone becomes the origin)
+	if err := s.apiClient.PromoteDataset(ctx, params.newDatasetName); err != nil {
+		klog.Errorf("Failed to promote clone %s: %v. Cleaning up.", params.newDatasetName, err)
+		// Cleanup the clone since we couldn't complete the operation
+		if delErr := s.apiClient.DeleteDataset(ctx, params.newDatasetName); delErr != nil {
+			klog.Errorf("Failed to cleanup clone after promotion failure: %v", delErr)
 		}
-		return nil, status.Errorf(codes.Internal, "Failed to promote cloned dataset: %v", err)
+		return nil, status.Errorf(codes.Internal, "Failed to promote clone: %v", err)
 	}
 
-	klog.Infof("Successfully created detached clone: %s (independent from source snapshot)", clonedDataset.Name)
+	klog.Infof("Successfully created promoted clone: %s (dependency reversed, snapshot can be deleted)", clonedDataset.Name)
+	return clonedDataset, nil
+}
+
+// executeDetachedVolumeClone creates a truly independent volume via zfs send/receive.
+// The resulting volume has NO dependency on the source snapshot.
+// This is slower than clone+promote but provides complete independence:
+// - Both source and clone can be deleted in any order
+// - No shared blocks (full data copy)
+//
+// This uses the same mechanism as detached snapshots (one-time replication).
+func (s *ControllerService) executeDetachedVolumeClone(ctx context.Context, snapshotMeta *SnapshotMetadata, params *cloneParameters) (*tnsapi.Dataset, error) {
+	klog.Infof("Creating detached (send/receive) volume from snapshot %s to dataset %s", snapshotMeta.SnapshotName, params.newDatasetName)
+
+	// Step 1: Run one-time replication (zfs send/receive) to create independent copy
+	// We use the snapshot directly as the source, not the parent dataset
+	sourceDataset := snapshotMeta.DatasetName
+	snapshotNameOnly := snapshotMeta.SnapshotName
+	if idx := strings.LastIndex(snapshotMeta.SnapshotName, "@"); idx != -1 {
+		snapshotNameOnly = snapshotMeta.SnapshotName[idx+1:]
+	}
+
+	klog.V(4).Infof("Running one-time replication from %s (snapshot: %s) to %s",
+		sourceDataset, snapshotNameOnly, params.newDatasetName)
+
+	replicationParams := tnsapi.ReplicationRunOnetimeParams{
+		Direction:               "PUSH",
+		Transport:               "LOCAL",
+		SourceDatasets:          []string{sourceDataset},
+		TargetDataset:           params.newDatasetName,
+		Recursive:               false,
+		Properties:              true,
+		PropertiesExclude:       []string{"mountpoint", "sharenfs", "sharesmb", tnsapi.PropertyCSIVolumeName},
+		Replicate:               false,
+		Encryption:              false,
+		NameRegex:               &snapshotNameOnly, // Only send the specific snapshot
+		NamingSchema:            []string{},
+		AlsoIncludeNamingSchema: []string{},
+		RetentionPolicy:         "NONE",
+		Readonly:                "IGNORE",
+		AllowFromScratch:        true,
+	}
+
+	err := s.apiClient.RunOnetimeReplicationAndWait(ctx, replicationParams, ReplicationPollInterval)
+	if err != nil {
+		klog.Errorf("Detached volume clone replication failed: %v. Attempting cleanup of %s", err, params.newDatasetName)
+		if delErr := s.apiClient.DeleteDataset(ctx, params.newDatasetName); delErr != nil {
+			klog.Warningf("Failed to cleanup partial detached clone dataset: %v", delErr)
+		}
+		return nil, status.Errorf(codes.Internal, "Failed to create detached volume clone via replication: %v", err)
+	}
+
+	klog.V(4).Infof("Replication completed for detached volume clone: %s", params.newDatasetName)
+
+	// Step 2: Promote to ensure complete independence
+	// LOCAL replication may create clone relationships for efficiency
+	klog.V(4).Infof("Promoting detached volume clone %s to ensure independence", params.newDatasetName)
+	if promoteErr := s.apiClient.PromoteDataset(ctx, params.newDatasetName); promoteErr != nil {
+		klog.Warningf("PromoteDataset(%s) failed: %v (continuing, may still work)", params.newDatasetName, promoteErr)
+	} else {
+		klog.V(4).Infof("Successfully promoted detached volume clone: %s", params.newDatasetName)
+	}
+
+	// Step 3: Clean up the replicated snapshot from the target dataset
+	targetSnapshot := fmt.Sprintf("%s@%s", params.newDatasetName, snapshotNameOnly)
+	klog.V(4).Infof("Cleaning up replicated snapshot %s", targetSnapshot)
+	if delErr := s.apiClient.DeleteSnapshot(ctx, targetSnapshot); delErr != nil {
+		klog.Warningf("Failed to delete replicated snapshot %s: %v (non-fatal)", targetSnapshot, delErr)
+	}
+
+	// Step 4: Query the dataset to get its full info
+	clonedDataset, err := s.apiClient.Dataset(ctx, params.newDatasetName)
+	if err != nil {
+		klog.Errorf("Failed to query detached clone dataset %s: %v", params.newDatasetName, err)
+		return nil, status.Errorf(codes.Internal, "Failed to query detached clone dataset: %v", err)
+	}
+
+	klog.Infof("Successfully created detached (send/receive) volume: %s (truly independent, no dependencies)", clonedDataset.Name)
 	return clonedDataset, nil
 }
 
@@ -1578,21 +1755,21 @@ func (s *ControllerService) waitForZFSSyncIfNVMeOF(protocol string) {
 }
 
 // setupVolumeFromClone routes to the appropriate protocol-specific volume setup.
-func (s *ControllerService) setupVolumeFromClone(ctx context.Context, req *csi.CreateVolumeRequest, clonedDataset *tnsapi.Dataset, protocol, server, subsystemNQN, snapshotID string) (*csi.CreateVolumeResponse, error) {
+func (s *ControllerService) setupVolumeFromClone(ctx context.Context, req *csi.CreateVolumeRequest, clonedDataset *tnsapi.Dataset, protocol, server, subsystemNQN string, info *cloneInfo) (*csi.CreateVolumeResponse, error) {
 	switch protocol {
 	case ProtocolNFS:
-		return s.setupNFSVolumeFromClone(ctx, req, clonedDataset, server, snapshotID)
+		return s.setupNFSVolumeFromClone(ctx, req, clonedDataset, server, info)
 	case ProtocolNVMeOF:
-		return s.setupNVMeOFVolumeFromCloneWithValidation(ctx, req, clonedDataset, server, subsystemNQN, snapshotID)
+		return s.setupNVMeOFVolumeFromCloneWithValidation(ctx, req, clonedDataset, server, subsystemNQN, info)
 	case ProtocolISCSI:
-		return s.setupISCSIVolumeFromClone(ctx, req, clonedDataset, server, snapshotID)
+		return s.setupISCSIVolumeFromClone(ctx, req, clonedDataset, server, info)
 	default:
 		return s.handleUnknownProtocol(ctx, clonedDataset, protocol)
 	}
 }
 
 // setupNVMeOFVolumeFromCloneWithValidation validates subsystemNQN and sets up NVMe-oF volume.
-func (s *ControllerService) setupNVMeOFVolumeFromCloneWithValidation(ctx context.Context, req *csi.CreateVolumeRequest, clonedDataset *tnsapi.Dataset, server, subsystemNQN, snapshotID string) (*csi.CreateVolumeResponse, error) {
+func (s *ControllerService) setupNVMeOFVolumeFromCloneWithValidation(ctx context.Context, req *csi.CreateVolumeRequest, clonedDataset *tnsapi.Dataset, server, subsystemNQN string, info *cloneInfo) (*csi.CreateVolumeResponse, error) {
 	if subsystemNQN == "" {
 		klog.Errorf("subsystemNQN parameter is required for NVMe-oF volumes, cleaning up")
 		if delErr := s.apiClient.DeleteDataset(ctx, clonedDataset.ID); delErr != nil {
@@ -1603,7 +1780,7 @@ func (s *ControllerService) setupNVMeOFVolumeFromCloneWithValidation(ctx context
 				"Pre-configure an NVMe-oF subsystem in TrueNAS (Shares > NVMe-oF Subsystems) "+
 				"and provide its NQN in the StorageClass parameters.")
 	}
-	return s.setupNVMeOFVolumeFromClone(ctx, req, clonedDataset, server, subsystemNQN, snapshotID)
+	return s.setupNVMeOFVolumeFromClone(ctx, req, clonedDataset, server, subsystemNQN, info)
 }
 
 // handleUnknownProtocol handles the case when protocol is not recognized.

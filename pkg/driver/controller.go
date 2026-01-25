@@ -684,11 +684,10 @@ func validateCapacityCompatibility(volumeName string, existingCapacity, reqCapac
 // createVolumeFromVolume creates a new volume by cloning an existing volume.
 // This is done by creating a temporary snapshot and cloning from it.
 //
-// The behavior is controlled by the StorageClass parameter "detachedVolumesFromVolumes":
-//   - When true: Clone is promoted to be independent, temp snapshot is deleted
-//   - When false (default): Clone remains a COW clone, temp snapshot is kept
-//
-// This matches democratic-csi's behavior and naming convention.
+// The clone maintains a COW (Copy-on-Write) relationship with the temporary snapshot.
+// This is space-efficient as the clone shares blocks with the source until modified.
+// The temporary snapshot is kept because the clone depends on it - this is fundamental
+// ZFS behavior where clones always depend on their origin snapshot.
 func (s *ControllerService) createVolumeFromVolume(ctx context.Context, req *csi.CreateVolumeRequest, sourceVolumeID string) (*csi.CreateVolumeResponse, error) {
 	klog.V(4).Infof("=== createVolumeFromVolume CALLED === New volume: %s, Source volume: %s", req.GetName(), sourceVolumeID)
 
@@ -707,11 +706,17 @@ func (s *ControllerService) createVolumeFromVolume(ctx context.Context, req *csi
 		protocol = ProtocolNFS
 	}
 
-	// Check if detached (independent) clone is requested
-	// When true, the clone will be promoted and temp snapshot deleted
-	// When false (default), the clone remains dependent on the temp snapshot (COW, more space-efficient)
-	detachedClone := params[DetachedVolumesFromVolumesParam] == VolumeContextValueTrue
-	klog.V(4).Infof("Volume clone mode: detachedVolumesFromVolumes=%v", detachedClone)
+	// Determine clone mode from StorageClass parameters:
+	// - detachedVolumesFromVolumes=true: Use send/receive for truly independent copy
+	// - promotedVolumesFromVolumes=true: Use clone+promote (reversed dependency)
+	// - default: Standard COW clone (clone depends on temp snapshot)
+	detachedMode := params[DetachedVolumesFromVolumesParam] == VolumeContextValueTrue
+	promotedMode := params[PromotedVolumesFromVolumesParam] == VolumeContextValueTrue
+
+	if detachedMode && promotedMode {
+		klog.Warningf("Both detachedVolumesFromVolumes and promotedVolumesFromVolumes are set; using detached mode")
+		promotedMode = false
+	}
 
 	// Build expected dataset name for source volume
 	sourceDatasetName := fmt.Sprintf("%s/%s", parentDataset, sourceVolumeID)
@@ -723,8 +728,8 @@ func (s *ControllerService) createVolumeFromVolume(ctx context.Context, req *csi
 		return nil, status.Errorf(codes.NotFound, "Source volume not found: %s", sourceVolumeID)
 	}
 
-	klog.V(4).Infof("Cloning from source volume %s (dataset: %s, protocol: %s)",
-		sourceVolumeID, sourceDatasetName, protocol)
+	klog.V(4).Infof("Cloning from source volume %s (dataset: %s, protocol: %s, detached: %v, promoted: %v)",
+		sourceVolumeID, sourceDatasetName, protocol, detachedMode, promotedMode)
 
 	// Create a temporary snapshot of the source volume
 	// Use predictable naming convention matching democratic-csi: volume-source-for-volume-<new_volume_id>
@@ -761,32 +766,8 @@ func (s *ControllerService) createVolumeFromVolume(ctx context.Context, req *csi
 		return nil, status.Errorf(codes.Internal, "Failed to encode snapshot ID: %v", encodeErr)
 	}
 
-	// If detached clone is requested, we need to pass this to createVolumeFromSnapshot
-	// so it will promote the clone. We do this by setting the parameter in a modified request.
-	cloneReq := req
-	if detachedClone {
-		// Create a copy of parameters with detachedVolumesFromSnapshots set
-		// This tells createVolumeFromSnapshot to promote the clone
-		modifiedParams := make(map[string]string)
-		for k, v := range params {
-			modifiedParams[k] = v
-		}
-		modifiedParams[DetachedVolumesFromSnapshotsParam] = VolumeContextValueTrue
-
-		// Create a new request with modified parameters
-		cloneReq = &csi.CreateVolumeRequest{
-			Name:                      req.Name,
-			CapacityRange:             req.CapacityRange,
-			VolumeCapabilities:        req.VolumeCapabilities,
-			Parameters:                modifiedParams,
-			Secrets:                   req.Secrets,
-			VolumeContentSource:       req.VolumeContentSource,
-			AccessibilityRequirements: req.AccessibilityRequirements,
-		}
-	}
-
 	// Clone from the temporary snapshot
-	resp, cloneErr := s.createVolumeFromSnapshot(ctx, cloneReq, snapshotID)
+	resp, cloneErr := s.createVolumeFromSnapshot(ctx, req, snapshotID)
 	if cloneErr != nil {
 		// Clone failed - cleanup temp snapshot
 		if delErr := s.apiClient.DeleteSnapshot(ctx, snapshot.ID); delErr != nil {
@@ -795,22 +776,25 @@ func (s *ControllerService) createVolumeFromVolume(ctx context.Context, req *csi
 		return nil, cloneErr
 	}
 
-	// Handle temp snapshot based on clone mode:
-	// - Detached clone: Delete temp snapshot (clone was promoted, no longer depends on it)
-	// - COW clone: Keep temp snapshot (clone depends on it for shared blocks)
-	if detachedClone {
-		// Detached mode: clone was promoted, safe to delete temp snapshot
+	// Handle temp snapshot cleanup based on clone mode:
+	// - Default (COW clone): Keep snapshot - clone depends on it
+	// - Promoted: Delete snapshot - dependency was reversed, snapshot depends on clone
+	// - Detached: Delete snapshot - no dependency exists (full data copy)
+	if promotedMode || detachedMode {
+		modeDesc := "promoted"
+		if detachedMode {
+			modeDesc = "detached"
+		}
+		klog.V(4).Infof("Deleting temporary snapshot %s (%s mode - no clone dependency)", snapshot.ID, modeDesc)
 		if delErr := s.apiClient.DeleteSnapshot(ctx, snapshot.ID); delErr != nil {
-			klog.Warningf("Failed to cleanup temporary snapshot %s: %v", snapshot.ID, delErr)
-			// Don't fail - the volume was created successfully
+			// Log warning but don't fail - the clone was created successfully
+			klog.Warningf("Failed to cleanup temporary snapshot %s after %s clone: %v (non-fatal)", snapshot.ID, modeDesc, delErr)
 		} else {
-			klog.V(4).Infof("Cleaned up temporary snapshot: %s (detached clone mode)", snapshot.ID)
+			klog.V(4).Infof("Successfully deleted temporary snapshot %s", snapshot.ID)
 		}
 	} else {
-		// COW mode: keep temp snapshot - the clone depends on it
-		// The snapshot will be automatically cleaned up when the clone is deleted
-		// (or manually via zfs destroy if needed)
-		klog.V(4).Infof("Keeping temporary snapshot %s (COW clone mode - clone depends on it)", snapshot.ID)
+		// Default COW mode - keep temporary snapshot as clone depends on it
+		klog.V(4).Infof("Keeping temporary snapshot %s (clone depends on it for COW)", snapshot.ID)
 	}
 
 	return resp, nil

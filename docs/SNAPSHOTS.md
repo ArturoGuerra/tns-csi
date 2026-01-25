@@ -574,71 +574,16 @@ Snapshots inherit the encryption settings of the parent ZFS dataset. If your Tru
 
 ## Detached Snapshots
 
-The TrueNAS CSI driver supports two types of detached operations:
+### Understanding Clone Dependencies
 
-1. **Detached Clones** (via clone promotion) - When restoring a volume from a snapshot
-2. **Detached Snapshots** (via zfs send/receive) - When creating a snapshot that survives source volume deletion
+When you restore a volume from a snapshot, the new volume is a ZFS clone that depends on the parent snapshot. This is fundamental ZFS behavior that enables space efficiency - clones share blocks with their source until modified.
 
-### Detached Clones (Independent Volume Restoration)
+**This means:**
+- The snapshot cannot be deleted while clones exist
+- You can delete the clone anytime
+- Delete clones first, then the snapshot
 
-By default, when you restore a volume from a snapshot, the new volume is a ZFS clone that depends on the parent snapshot. This means:
-- The snapshot cannot be deleted while the clone exists
-- Deleting the snapshot would fail or orphan the clone
-
-**Detached clones** solve this by creating a **promoted clone** that is completely independent from the source snapshot. After promotion, the clone has no dependency on the original snapshot, which can then be safely deleted.
-
-#### When to Use Detached Clones
-
-- **Snapshot rotation**: You want to create clones but also rotate/delete old snapshots
-- **Independent copies**: You need a fully independent copy of data that outlives the snapshot
-- **Cleanup flexibility**: You want the freedom to delete snapshots without worrying about clone dependencies
-
-#### How to Use Detached Clones
-
-1. **Create a StorageClass with `detachedVolumesFromSnapshots: "true"`**:
-
-```yaml
-apiVersion: storage.k8s.io/v1
-kind: StorageClass
-metadata:
-  name: truenas-nfs-detached
-provisioner: tns.csi.io
-parameters:
-  protocol: nfs
-  pool: tank
-  server: truenas.local
-  # Enable detached clones - clones will be promoted to be independent
-  detachedVolumesFromSnapshots: "true"
-allowVolumeExpansion: true
-reclaimPolicy: Delete
-```
-
-2. **Create a PVC from a snapshot using the detached StorageClass**:
-
-```yaml
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: detached-clone-pvc
-spec:
-  storageClassName: truenas-nfs-detached  # Uses detached StorageClass
-  dataSource:
-    name: my-snapshot
-    kind: VolumeSnapshot
-    apiGroup: snapshot.storage.k8s.io
-  accessModes:
-    - ReadWriteMany
-  resources:
-    requests:
-      storage: 10Gi
-```
-
-3. **Now you can delete the original snapshot** without affecting the cloned volume:
-
-```bash
-# This works because the clone is independent (promoted)
-kubectl delete volumesnapshot my-snapshot
-```
+This is the expected behavior for space-efficient storage operations.
 
 ### Detached Snapshots (Survive Source Volume Deletion)
 
@@ -742,26 +687,9 @@ kubectl get volumesnapshot my-detached-snapshot
 | **Use case** | Point-in-time recovery | Backup/DR, long-term archival |
 | **Location** | Same dataset as source | Separate parent dataset |
 
-### NVMe-oF Detached Operations
+### NVMe-oF Detached Snapshots
 
-Both detached clones and detached snapshots work with NVMe-oF:
-
-**Detached Clone StorageClass:**
-```yaml
-apiVersion: storage.k8s.io/v1
-kind: StorageClass
-metadata:
-  name: truenas-nvmeof-detached
-provisioner: tns.csi.io
-parameters:
-  protocol: nvmeof
-  pool: tank
-  server: truenas.local
-  subsystemNQN: nqn.2025-01.com.truenas:csi
-  detachedVolumesFromSnapshots: "true"
-allowVolumeExpansion: true
-reclaimPolicy: Delete
-```
+Detached snapshots also work with NVMe-oF volumes:
 
 **Detached Snapshot VolumeSnapshotClass:**
 ```yaml

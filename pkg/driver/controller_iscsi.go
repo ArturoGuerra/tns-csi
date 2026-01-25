@@ -689,8 +689,8 @@ func (s *ControllerService) getISCSIVolumeInfo(ctx context.Context, meta *Volume
 
 // setupISCSIVolumeFromClone sets up iSCSI infrastructure (extent, target, target-extent) for a cloned ZVOL.
 // The ZVOL already exists from the clone operation - this function creates the iSCSI resources on top of it.
-func (s *ControllerService) setupISCSIVolumeFromClone(ctx context.Context, req *csi.CreateVolumeRequest, zvol *tnsapi.Dataset, server, snapshotID string) (*csi.CreateVolumeResponse, error) {
-	klog.V(4).Infof("Setting up iSCSI infrastructure for cloned ZVOL: %s", zvol.Name)
+func (s *ControllerService) setupISCSIVolumeFromClone(ctx context.Context, req *csi.CreateVolumeRequest, zvol *tnsapi.Dataset, server string, info *cloneInfo) (*csi.CreateVolumeResponse, error) {
+	klog.V(4).Infof("Setting up iSCSI infrastructure for cloned ZVOL: %s (cloneMode: %s)", zvol.Name, info.Mode)
 
 	volumeName := req.GetName()
 
@@ -818,8 +818,8 @@ func (s *ControllerService) setupISCSIVolumeFromClone(ctx context.Context, req *
 		PVCNamespace:   params["csi.storage.k8s.io/pvc/namespace"],
 		StorageClass:   params["csi.storage.k8s.io/sc/name"],
 	})
-	// Add clone-specific properties
-	cloneProps := tnsapi.ClonedVolumeProperties(tnsapi.ContentSourceSnapshot, snapshotID)
+	// Add clone-specific properties (including clone mode for dependency tracking)
+	cloneProps := tnsapi.ClonedVolumePropertiesV2(tnsapi.ContentSourceSnapshot, info.SnapshotID, info.Mode, info.OriginSnapshot)
 	for k, v := range cloneProps {
 		props[k] = v
 	}
@@ -855,7 +855,7 @@ func (s *ControllerService) setupISCSIVolumeFromClone(ctx context.Context, req *
 			ContentSource: &csi.VolumeContentSource{
 				Type: &csi.VolumeContentSource_Snapshot{
 					Snapshot: &csi.VolumeContentSource_SnapshotSource{
-						SnapshotId: snapshotID,
+						SnapshotId: info.SnapshotID,
 					},
 				},
 			},

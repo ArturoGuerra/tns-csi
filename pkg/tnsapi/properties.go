@@ -151,6 +151,28 @@ const (
 	// PropertyContentSourceID stores the content source ID for cloned volumes.
 	// Value: The snapshot ID or volume ID used as source.
 	PropertyContentSourceID = "tns-csi:content_source_id"
+
+	// PropertyCloneMode stores how the clone was created.
+	// Value: "cow" (default COW clone), "promoted" (clone+promote), or "detached" (send/receive).
+	// This affects deletion order and dependency relationships.
+	PropertyCloneMode = "tns-csi:clone_mode"
+
+	// PropertyOriginSnapshot stores the ZFS origin snapshot for COW clones.
+	// Value: Full ZFS snapshot path, e.g., "pool/dataset@snapshot".
+	// Only set for COW clones (not promoted or detached).
+	PropertyOriginSnapshot = "tns-csi:origin_snapshot"
+)
+
+// Clone mode values.
+const (
+	// CloneModeCOW indicates a standard COW clone (clone depends on snapshot).
+	CloneModeCOW = "cow"
+
+	// CloneModePromoted indicates a promoted clone (dependency reversed).
+	CloneModePromoted = "promoted"
+
+	// CloneModeDetached indicates a detached clone via send/receive (no dependency).
+	CloneModeDetached = "detached"
 )
 
 // Legacy property aliases for backward compatibility during migration.
@@ -226,6 +248,8 @@ func PropertyNames() []string {
 		// Clone properties
 		PropertyContentSourceType,
 		PropertyContentSourceID,
+		PropertyCloneMode,
+		PropertyOriginSnapshot,
 		// Legacy
 		PropertyProvisionedAt,
 	}
@@ -436,6 +460,22 @@ func ClonedVolumeProperties(sourceType, sourceID string) map[string]string {
 		PropertyContentSourceType: sourceType,
 		PropertyContentSourceID:   sourceID,
 	}
+}
+
+// ClonedVolumePropertiesV2 returns additional properties for cloned volumes with clone mode info.
+// cloneMode: "cow", "promoted", or "detached"
+// originSnapshot: The ZFS snapshot path the clone was created from (empty for detached clones).
+func ClonedVolumePropertiesV2(sourceType, sourceID, cloneMode, originSnapshot string) map[string]string {
+	props := map[string]string{
+		PropertyContentSourceType: sourceType,
+		PropertyContentSourceID:   sourceID,
+		PropertyCloneMode:         cloneMode,
+	}
+	// Only set origin for COW clones (promoted and detached break/have no dependency)
+	if originSnapshot != "" && cloneMode == CloneModeCOW {
+		props[PropertyOriginSnapshot] = originSnapshot
+	}
+	return props
 }
 
 // SnapshotProperties returns properties to set on a snapshot's source dataset.
