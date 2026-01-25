@@ -17,23 +17,6 @@ A Kubernetes CSI (Container Storage Interface) driver for TrueNAS Scale 25.10+.
 - Use of this software is entirely at your own risk
 - Extensive testing and validation required before production use
 
-## Breaking Changes Notice
-
-**⚠️ Schema v1 Migration (v0.8.0+)**
-
-Starting with v0.8.0, the driver uses Schema v1 for volume metadata, which is a **breaking change**:
-
-- **Existing volumes** created with earlier versions will not be recognized by the new driver
-- **Legacy snapshot ID formats** (base64/JSON) are no longer supported
-- **Volumes without proper metadata** (`tns-csi:*` ZFS properties) cannot be managed
-
-**Before upgrading:**
-1. Delete all PVCs/PVs, or use `deleteStrategy: retain` to keep the underlying data
-2. Deploy the new driver version
-3. For retained volumes, use the adoption workflow to re-import them (see [Volume Adoption](#volume-adoption))
-
-See [FEATURES.md](docs/FEATURES.md#volume-metadata-schema-v1) for details on the new metadata schema.
-
 ## Overview
 
 This CSI driver enables Kubernetes to provision and manage persistent volumes on TrueNAS Scale 25.10+. It currently supports:
