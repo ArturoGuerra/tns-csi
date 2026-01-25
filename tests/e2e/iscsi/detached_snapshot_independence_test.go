@@ -135,35 +135,27 @@ var _ = Describe("Detached Snapshot Independence", func() {
 		Expect(contentInfo).NotTo(BeNil(), "VolumeSnapshotContent is nil")
 		GinkgoWriter.Printf("[iSCSI] Snapshot handle: %s\n", contentInfo.SnapshotHandle)
 
-		detachedDatasetPath := fmt.Sprintf("%s/csi-detached-snapshots/%s", pool, snapshotName)
+		// Parse the snapshot handle to get the actual CSI snapshot name
+		// Format: detached:{protocol}:{volume_id}@{snapshot_name}
+		var csiSnapshotName string
+		if parts := strings.Split(contentInfo.SnapshotHandle, "@"); len(parts) == 2 {
+			csiSnapshotName = parts[1]
+		} else {
+			Fail("Invalid snapshot handle format: " + contentInfo.SnapshotHandle)
+		}
+		GinkgoWriter.Printf("[iSCSI] CSI snapshot name from handle: %s\n", csiSnapshotName)
+
+		detachedDatasetPath := fmt.Sprintf("%s/csi-detached-snapshots/%s", pool, csiSnapshotName)
 
 		By("Verifying detached snapshot dataset exists")
 		exists, err := f.TrueNAS.DatasetExists(ctx, detachedDatasetPath)
-		if err != nil || !exists {
-			if contentInfo.SnapshotHandle != "" {
-				GinkgoWriter.Printf("[iSCSI] Detached dataset not at expected path, checking handle...\n")
-			}
-		}
+		Expect(err).NotTo(HaveOccurred(), "Failed to check if detached dataset exists")
+		Expect(exists).To(BeTrue(), fmt.Sprintf("Detached snapshot dataset %s should exist", detachedDatasetPath))
 		GinkgoWriter.Printf("[iSCSI] Detached snapshot dataset path: %s (exists: %v)\n", detachedDatasetPath, exists)
 
 		By("CRITICAL: Verifying detached snapshot is NOT a ZFS clone (no origin)")
 		isClone, origin, err := f.TrueNAS.IsDatasetClone(ctx, detachedDatasetPath)
-		if err != nil {
-			GinkgoWriter.Printf("[iSCSI] WARNING: Could not check clone status: %v\n", err)
-			var allDatasets []map[string]any
-			if queryErr := f.TrueNAS.Client().Call(ctx, "pool.dataset.query", []any{
-				[]any{[]any{"id", "~", "csi-detached-snapshots"}},
-			}, &allDatasets); queryErr == nil {
-				for _, ds := range allDatasets {
-					if name, ok := ds["id"].(string); ok && strings.Contains(name, snapshotName) {
-						detachedDatasetPath = name
-						isClone, origin, _ = f.TrueNAS.IsDatasetClone(ctx, detachedDatasetPath)
-						GinkgoWriter.Printf("[iSCSI] Found detached dataset: %s\n", detachedDatasetPath)
-						break
-					}
-				}
-			}
-		}
+		Expect(err).NotTo(HaveOccurred(), "Failed to check clone status")
 
 		if isClone {
 			GinkgoWriter.Printf("[iSCSI] FAILURE: Detached snapshot IS a clone! Origin: %s\n", origin)
