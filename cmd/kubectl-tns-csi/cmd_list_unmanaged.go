@@ -19,7 +19,8 @@ import (
 type UnmanagedVolume struct {
 	Dataset      string `json:"dataset"                yaml:"dataset"`
 	Name         string `json:"name"                   yaml:"name"`
-	Type         string `json:"type"                   yaml:"type"` // "filesystem" or "volume" (zvol)
+	Type         string `json:"type"                   yaml:"type"`        // "filesystem" or "volume" (zvol)
+	IsContainer  bool   `json:"isContainer"            yaml:"isContainer"` // true if dataset has children
 	Protocol     string `json:"protocol"               yaml:"protocol"`
 	Size         string `json:"size"                   yaml:"size"`
 	SizeBytes    int64  `json:"sizeBytes"              yaml:"sizeBytes"`
@@ -149,12 +150,30 @@ func findUnmanagedVolumes(ctx context.Context, client tnsapi.ClientInterface, se
 	}
 
 	// Try to detect democratic-csi managed datasets
+	// democratic-csi sets "democratic-csi:csi_share_volume_context" property on managed volumes
 	//nolint:errcheck // non-fatal if this fails
-	democraticDatasets, _ := client.FindDatasetsByProperty(ctx, searchPath, "org.democratic-csi:managed_by", "")
+	democraticDatasets, _ := client.FindDatasetsByProperty(ctx, searchPath, "democratic-csi:csi_share_volume_context", "")
 
 	democraticIDs := make(map[string]string)
 	for i := range democraticDatasets {
 		democraticIDs[democraticDatasets[i].ID] = "democratic-csi"
+	}
+
+	// Build set of all dataset IDs to detect containers (datasets with children)
+	allDatasetIDs := make(map[string]bool)
+	for i := range allDatasets {
+		allDatasetIDs[allDatasets[i].ID] = true
+	}
+
+	// Helper to check if dataset has children
+	hasChildren := func(datasetID string) bool {
+		prefix := datasetID + "/"
+		for id := range allDatasetIDs {
+			if strings.HasPrefix(id, prefix) {
+				return true
+			}
+		}
+		return false
 	}
 
 	var volumes []UnmanagedVolume
@@ -178,9 +197,10 @@ func findUnmanagedVolumes(ctx context.Context, client tnsapi.ClientInterface, se
 		}
 
 		vol := UnmanagedVolume{
-			Dataset: ds.ID,
-			Name:    extractDatasetName(ds.ID),
-			Type:    ds.Type,
+			Dataset:     ds.ID,
+			Name:        extractDatasetName(ds.ID),
+			Type:        ds.Type,
+			IsContainer: hasChildren(ds.ID),
 		}
 
 		// Get size
@@ -197,11 +217,10 @@ func findUnmanagedVolumes(ctx context.Context, client tnsapi.ClientInterface, se
 			vol.NFSShareID = share.ID
 			vol.NFSSharePath = share.Path
 		} else if ds.Type == "VOLUME" {
-			// ZVOLs are typically used for block storage
-			vol.Protocol = protocolNVMeOF
-		} else {
-			vol.Protocol = "unknown"
+			// ZVOLs are typically used for block storage (NVMe-oF or iSCSI)
+			vol.Protocol = "block"
 		}
+		// Filesystems without NFS share have no protocol (vol.Protocol stays empty)
 
 		// Check for democratic-csi management
 		if manager, ok := democraticIDs[ds.ID]; ok {

@@ -290,6 +290,42 @@ Show the current status of a volume from TrueNAS.
 kubectl tns-csi status <pvc-name>
 ```
 
+### Web Dashboard
+
+#### `serve`
+Start a web-based dashboard for viewing tns-csi resources in your browser.
+
+```bash
+# Start dashboard on default port 8080
+kubectl tns-csi serve
+
+# Start on custom port
+kubectl tns-csi serve --port 9090
+
+# With pool for unmanaged volume discovery
+kubectl tns-csi serve --pool storage
+```
+
+The dashboard provides:
+- **Summary cards** - Total volumes, snapshots, clones, and capacity
+- **Volumes tab** - All managed volumes with protocol, capacity, and adoptable status
+- **Snapshots tab** - All snapshots with source volume and type (attached/detached)
+- **Clones tab** - Cloned volumes with dependency information
+- **Unmanaged tab** - Volumes not managed by tns-csi (requires `--pool` flag)
+
+Features:
+- Dark theme UI
+- Real-time refresh via htmx
+- Auto-detects democratic-csi managed volumes
+- Shows container datasets vs actual volumes
+
+| Flag | Description |
+|------|-------------|
+| `--port` | Port to listen on (default: 8080) |
+| `--pool` | ZFS pool to search for unmanaged volumes |
+
+Access the dashboard at `http://localhost:8080` after starting.
+
 ## Output Formats
 
 All commands support multiple output formats:

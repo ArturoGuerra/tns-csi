@@ -1,0 +1,46 @@
+{{define "volumes_table.html"}}
+{{if .}}
+<table>
+    <thead>
+        <tr>
+            <th>Volume ID</th>
+            <th>Dataset</th>
+            <th>Protocol</th>
+            <th>Capacity</th>
+            <th>Adoptable</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .}}
+        <tr>
+            <td class="mono">{{.VolumeID}}</td>
+            <td class="mono text-muted">{{.Dataset}}</td>
+            <td>
+                {{if eq .Protocol "nfs"}}
+                <span class="badge badge-nfs">NFS</span>
+                {{else if eq .Protocol "nvmeof"}}
+                <span class="badge badge-nvmeof">NVMe-oF</span>
+                {{else if eq .Protocol "iscsi"}}
+                <span class="badge badge-iscsi">iSCSI</span>
+                {{else}}
+                <span class="badge">{{.Protocol}}</span>
+                {{end}}
+            </td>
+            <td>{{.CapacityHuman}}</td>
+            <td>
+                {{if .Adoptable}}
+                <span class="badge badge-promoted">Yes</span>
+                {{else}}
+                <span class="text-muted">No</span>
+                {{end}}
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{else}}
+<div class="empty-state">
+    No volumes found
+</div>
+{{end}}
+{{end}}

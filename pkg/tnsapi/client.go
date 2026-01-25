@@ -2291,13 +2291,17 @@ func (c *Client) FindDatasetsByProperty(ctx context.Context, prefix, propertyNam
 	klog.V(4).Infof("Query returned %d datasets (prefix: %q)", len(result), prefix)
 
 	// Filter datasets that have the matching property value
+	// If propertyValue is empty, match any dataset that has the property (regardless of value)
 	var matched []DatasetWithProperties
 	for _, ds := range result {
 		if ds.UserProperties == nil {
 			continue
 		}
-		if prop, ok := ds.UserProperties[propertyName]; ok && prop.Value == propertyValue {
-			matched = append(matched, ds)
+		if prop, ok := ds.UserProperties[propertyName]; ok {
+			// Empty propertyValue means "match any value" (just check property exists)
+			if propertyValue == "" || prop.Value == propertyValue {
+				matched = append(matched, ds)
+			}
 		}
 	}
 
