@@ -128,6 +128,42 @@ kubectl tns-csi list-orphaned
 
 Useful for disaster recovery and cleanup scenarios.
 
+#### `list-clones`
+List all cloned volumes with their dependency relationships.
+
+```bash
+kubectl tns-csi list-clones
+kubectl tns-csi list-clones -o yaml
+```
+
+Shows clone mode and helps understand what can and cannot be deleted:
+- **cow** (Copy-on-Write): Clone depends on snapshot. Snapshot CANNOT be deleted.
+- **promoted**: Snapshot depends on clone. Snapshot CAN be deleted.
+- **detached**: No dependency. Both can be deleted independently.
+
+#### `list-unmanaged`
+List volumes not managed by tns-csi (useful for discovering volumes to import).
+
+```bash
+kubectl tns-csi list-unmanaged --pool storage
+kubectl tns-csi list-unmanaged --parent storage/k8s
+kubectl tns-csi list-unmanaged --pool storage --all    # Include system datasets
+kubectl tns-csi list-unmanaged --pool storage -o json
+```
+
+Shows:
+- Dataset path and name
+- Type (filesystem or zvol)
+- Detected protocol (NFS if share exists)
+- Size information
+- Any existing management markers (e.g., democratic-csi)
+
+| Flag | Description |
+|------|-------------|
+| `--pool` | ZFS pool to search in |
+| `--parent` | Parent dataset path to search under |
+| `--all` | Show all datasets including system datasets |
+
 ### Diagnostic Commands
 
 #### `describe`
@@ -205,6 +241,38 @@ kubectl tns-csi mark-adoptable --unmark --all        # Remove from all
 ```
 
 ### Adoption Commands
+
+#### `import`
+Import an existing dataset into tns-csi management.
+
+```bash
+# Import an NFS dataset (auto-detect existing share)
+kubectl tns-csi import storage/k8s/pvc-xxx --protocol nfs
+
+# Import and create NFS share if missing
+kubectl tns-csi import storage/data/myvolume --protocol nfs --create-share
+
+# Import with custom volume ID
+kubectl tns-csi import storage/k8s/pvc-xxx --protocol nfs --volume-id my-volume
+
+# Dry run to see what would happen
+kubectl tns-csi import storage/k8s/pvc-xxx --protocol nfs --dry-run
+```
+
+Useful for:
+- Migrating volumes from democratic-csi
+- Adopting manually created datasets
+- Taking over volumes from other CSI drivers
+
+| Flag | Description |
+|------|-------------|
+| `--protocol` | Protocol: nfs or nvmeof (required) |
+| `--volume-id` | Custom volume ID (defaults to dataset name) |
+| `--create-share` | Create NFS share if it doesn't exist |
+| `--storage-class` | StorageClass to associate with the volume |
+| `--dry-run` | Show what would be done without making changes |
+
+After importing, use `kubectl tns-csi adopt <dataset>` to generate PV/PVC manifests.
 
 #### `adopt`
 Generate a PersistentVolume manifest to adopt an existing volume.

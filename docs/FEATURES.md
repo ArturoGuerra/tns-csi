@@ -678,7 +678,7 @@ The driver stores metadata as ZFS user properties on each volume's dataset/ZVOL.
 **NVMe-oF Volumes:**
 | Property | Description | Mutable? |
 |----------|-------------|----------|
-| `tns-csi:nvmeof_nqn` | Subsystem NQN (stable) | No |
+| `tns-csi:nvmeof_subsystem_nqn` | Subsystem NQN (stable) | No |
 | `tns-csi:nvmeof_subsystem_id` | TrueNAS subsystem ID | Yes |
 | `tns-csi:nvmeof_namespace_id` | TrueNAS namespace ID | Yes |
 
@@ -688,6 +688,19 @@ The driver stores metadata as ZFS user properties on each volume's dataset/ZVOL.
 | `tns-csi:iscsi_iqn` | Target IQN (stable) | No |
 | `tns-csi:iscsi_target_id` | TrueNAS target ID | Yes |
 | `tns-csi:iscsi_extent_id` | TrueNAS extent ID | Yes |
+
+**Clone/Content Source Properties (set automatically when cloning):**
+| Property | Description | Values |
+|----------|-------------|--------|
+| `tns-csi:content_source_type` | Type of clone source | `"snapshot"` or `"volume"` |
+| `tns-csi:content_source_id` | Source snapshot/volume ID | CSI ID of source |
+| `tns-csi:clone_mode` | Clone dependency mode | `"cow"`, `"promoted"`, or `"detached"` |
+| `tns-csi:origin_snapshot` | ZFS origin (COW clones only) | ZFS snapshot path |
+
+Clone modes determine dependency relationships:
+- **cow** (Copy-on-Write): Clone depends on snapshot. Snapshot CANNOT be deleted while clone exists.
+- **promoted**: After ZFS promote, dependency is reversed. Snapshot CAN be deleted.
+- **detached**: Created via zfs send/receive. No dependency - both can be deleted independently.
 
 **Viewing Volume Properties:**
 ```bash
@@ -761,7 +774,7 @@ A volume is adoptable if it has:
 3. `tns-csi:protocol` set to `"nfs"`, `"nvmeof"`, or `"iscsi"`
 4. Protocol-specific stable identifier:
    - NFS: `tns-csi:nfs_share_path`
-   - NVMe-oF: `tns-csi:nvmeof_nqn`
+   - NVMe-oF: `tns-csi:nvmeof_subsystem_nqn`
    - iSCSI: `tns-csi:iscsi_iqn`
 
 #### Manual Adoption Workflow
