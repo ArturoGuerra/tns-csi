@@ -81,10 +81,32 @@ var _ = Describe("NFS Concurrent Operations", func() {
 		}
 
 		// Register cleanup for all PVCs
+		// Use context.Background() since the test ctx may be canceled when cleanup runs
 		for _, pvcName := range pvcNames {
 			name := pvcName // Capture for closure
 			f.Cleanup.Add(func() error {
-				return f.K8s.DeletePVC(ctx, name)
+				cleanupCtx := context.Background()
+
+				// Get PV name before deleting PVC so we can wait for it
+				var pvName string
+				if pvc, getErr := f.K8s.GetPVC(cleanupCtx, name); getErr == nil && pvc.Spec.VolumeName != "" {
+					pvName = pvc.Spec.VolumeName
+				}
+
+				// Delete the PVC
+				if deleteErr := f.K8s.DeletePVC(cleanupCtx, name); deleteErr != nil {
+					return deleteErr
+				}
+
+				// Wait for PVC deletion
+				_ = f.K8s.WaitForPVCDeleted(cleanupCtx, name, 2*time.Minute)
+
+				// Wait for PV deletion (ensures CSI DeleteVolume completed)
+				if pvName != "" {
+					_ = f.K8s.WaitForPVDeleted(cleanupCtx, pvName, 2*time.Minute)
+				}
+
+				return nil
 			})
 		}
 

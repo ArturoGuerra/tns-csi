@@ -50,7 +50,7 @@ var _ = Describe("NFS StatefulSet", func() {
 		err := f.K8s.CreateHeadlessService(ctx, serviceName, labels)
 		Expect(err).NotTo(HaveOccurred())
 		f.Cleanup.Add(func() error {
-			return f.K8s.DeleteService(ctx, serviceName)
+			return f.K8s.DeleteService(context.Background(), serviceName)
 		})
 
 		By(fmt.Sprintf("Creating StatefulSet with %d replicas", replicas))
@@ -66,16 +66,38 @@ var _ = Describe("NFS StatefulSet", func() {
 		})
 		Expect(err).NotTo(HaveOccurred())
 		f.Cleanup.Add(func() error {
-			return f.K8s.DeleteStatefulSet(ctx, stsName)
+			return f.K8s.DeleteStatefulSet(context.Background(), stsName)
 		})
 
 		// Register PVC cleanup (StatefulSet creates data-<sts>-<n> PVCs)
+		// Use context.Background() since the test ctx may be canceled when cleanup runs
 		for i := range replicas {
 			pvcName := f.K8s.GetStatefulSetPVCName(stsName, volumeName, int(i))
 			// Capture the pvcName in the closure
 			name := pvcName
 			f.Cleanup.Add(func() error {
-				return f.K8s.DeletePVC(ctx, name)
+				cleanupCtx := context.Background()
+
+				// Get PV name before deleting PVC so we can wait for it
+				var pvName string
+				if pvc, getErr := f.K8s.GetPVC(cleanupCtx, name); getErr == nil && pvc.Spec.VolumeName != "" {
+					pvName = pvc.Spec.VolumeName
+				}
+
+				// Delete the PVC
+				if deleteErr := f.K8s.DeletePVC(cleanupCtx, name); deleteErr != nil {
+					return deleteErr
+				}
+
+				// Wait for PVC deletion
+				_ = f.K8s.WaitForPVCDeleted(cleanupCtx, name, 2*time.Minute)
+
+				// Wait for PV deletion (ensures CSI DeleteVolume completed)
+				if pvName != "" {
+					_ = f.K8s.WaitForPVDeleted(cleanupCtx, pvName, 2*time.Minute)
+				}
+
+				return nil
 			})
 		}
 

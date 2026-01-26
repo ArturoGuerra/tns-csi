@@ -98,12 +98,39 @@ var _ = Describe("iSCSI Concurrent Operations", func() {
 		}
 
 		// Register cleanup for all PVCs and Pods
+		// Use context.Background() since the test ctx may be canceled when cleanup runs
 		for i := range numVolumes {
 			pvcName := pvcNames[i]
 			podName := podNames[i]
 			f.Cleanup.Add(func() error {
-				_ = f.K8s.DeletePod(ctx, podName)
-				return f.K8s.DeletePVC(ctx, pvcName)
+				cleanupCtx := context.Background()
+
+				// Delete pod first and wait for it to be fully deleted
+				if deleteErr := f.K8s.DeletePod(cleanupCtx, podName); deleteErr != nil {
+					return deleteErr
+				}
+				_ = f.K8s.WaitForPodDeleted(cleanupCtx, podName, 2*time.Minute)
+
+				// Get PV name before deleting PVC so we can wait for it
+				var pvName string
+				if pvc, getErr := f.K8s.GetPVC(cleanupCtx, pvcName); getErr == nil && pvc.Spec.VolumeName != "" {
+					pvName = pvc.Spec.VolumeName
+				}
+
+				// Delete the PVC
+				if deleteErr := f.K8s.DeletePVC(cleanupCtx, pvcName); deleteErr != nil {
+					return deleteErr
+				}
+
+				// Wait for PVC deletion
+				_ = f.K8s.WaitForPVCDeleted(cleanupCtx, pvcName, 2*time.Minute)
+
+				// Wait for PV deletion (ensures CSI DeleteVolume completed)
+				if pvName != "" {
+					_ = f.K8s.WaitForPVDeleted(cleanupCtx, pvName, 2*time.Minute)
+				}
+
+				return nil
 			})
 		}
 
@@ -215,9 +242,13 @@ var _ = Describe("iSCSI Concurrent Operations", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(newPod).NotTo(BeNil())
 
-		// Register cleanup
+		// Register cleanup with fresh context
 		f.Cleanup.Add(func() error {
-			return f.K8s.DeletePod(ctx, newPodName)
+			cleanupCtx := context.Background()
+			if deleteErr := f.K8s.DeletePod(cleanupCtx, newPodName); deleteErr != nil {
+				return deleteErr
+			}
+			return f.K8s.WaitForPodDeleted(cleanupCtx, newPodName, 2*time.Minute)
 		})
 
 		By("Waiting for new POD to be ready")
