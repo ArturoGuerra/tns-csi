@@ -1833,8 +1833,7 @@ func (c *Client) queryDatasets(ctx context.Context, datasetName string) ([]Datas
 // Properties are stored in the ZFS dataset's user_properties field.
 // This is used to track CSI metadata like NFS share IDs, NVMe-oF subsystem IDs, etc.
 func (c *Client) SetDatasetProperties(ctx context.Context, datasetID string, properties map[string]string) error {
-	klog.V(4).Infof("Setting %d user properties on dataset: %s", len(properties), datasetID)
-	klog.Infof("DEBUG: SetDatasetProperties called for dataset %s with properties: %v", datasetID, properties)
+	klog.V(4).Infof("Setting %d user properties on dataset %s: %v", len(properties), datasetID, properties)
 
 	if len(properties) == 0 {
 		return nil
@@ -1854,16 +1853,14 @@ func (c *Client) SetDatasetProperties(ctx context.Context, datasetID string, pro
 	params := map[string]interface{}{
 		"user_properties_update": userProps,
 	}
-	klog.Infof("DEBUG: Sending pool.dataset.update with user_properties_update: %v", userProps)
+	klog.V(4).Infof("Sending pool.dataset.update with user_properties_update: %v", userProps)
 
 	var result Dataset
 	err := c.Call(ctx, "pool.dataset.update", []interface{}{datasetID, params}, &result)
 	if err != nil {
-		klog.Errorf("DEBUG: SetDatasetProperties FAILED for dataset %s: %v", datasetID, err)
 		return fmt.Errorf("failed to set user properties on dataset %s: %w", datasetID, err)
 	}
 
-	klog.Infof("DEBUG: SetDatasetProperties SUCCESS for dataset %s", datasetID)
 	klog.V(4).Infof("Successfully set %d user properties on dataset: %s", len(properties), datasetID)
 	return nil
 }
@@ -1872,8 +1869,7 @@ func (c *Client) SetDatasetProperties(ctx context.Context, datasetID string, pro
 // Properties are stored in the ZFS snapshot's user_properties field.
 // This is used to track CSI metadata like NFS share IDs, NVMe-oF subsystem IDs, etc.
 func (c *Client) SetSnapshotProperties(ctx context.Context, snapshotID string, updateProperties map[string]string, removeProperties []string) error {
-	klog.V(4).Infof("Setting %d user properties on snapshot: %s", len(updateProperties), snapshotID)
-	klog.Infof("DEBUG: SetSnapshotProperties called for snapshot %s with properties: %v", snapshotID, updateProperties)
+	klog.V(4).Infof("Setting %d user properties on snapshot %s: %v", len(updateProperties), snapshotID, updateProperties)
 
 	if len(updateProperties) == 0 && len(removeProperties) == 0 {
 		return nil
@@ -1897,16 +1893,14 @@ func (c *Client) SetSnapshotProperties(ctx context.Context, snapshotID string, u
 		params["user_properties_remove"] = removeProperties
 	}
 
-	klog.Infof("DEBUG: Sending pool.snapshot.update with user_properties_update: %v", userPropsUpdate)
+	klog.V(4).Infof("Sending pool.snapshot.update with user_properties_update: %v", userPropsUpdate)
 
 	var result Snapshot
 	err := c.Call(ctx, "pool.snapshot.update", []interface{}{snapshotID, params}, &result)
 	if err != nil {
-		klog.Errorf("DEBUG: SetSnapshotProperties FAILED for snapshot %s: %v", snapshotID, err)
 		return fmt.Errorf("failed to set user properties on snapshot %s: %w", snapshotID, err)
 	}
 
-	klog.Infof("DEBUG: SetSnapshotProperties SUCCESS for snapshot %s", snapshotID)
 	klog.V(4).Infof("Successfully set %d user properties on snapshot: %s", len(updateProperties), snapshotID)
 	return nil
 }
@@ -1930,8 +1924,7 @@ type UserProperty struct {
 // Returns a map of property name to value for the requested properties.
 // Properties that don't exist will not be included in the returned map.
 func (c *Client) GetDatasetProperties(ctx context.Context, datasetID string, propertyNames []string) (map[string]string, error) {
-	klog.V(4).Infof("Getting %d user properties from dataset: %s", len(propertyNames), datasetID)
-	klog.Infof("DEBUG: GetDatasetProperties called for dataset %s, requesting: %v", datasetID, propertyNames)
+	klog.V(4).Infof("Getting %d user properties from dataset %s: %v", len(propertyNames), datasetID, propertyNames)
 
 	// Query the dataset with extra options to include user_properties
 	// TrueNAS pool.dataset.query extra options:
@@ -1955,12 +1948,11 @@ func (c *Client) GetDatasetProperties(ctx context.Context, datasetID string, pro
 		queryOpts,
 	}, &result)
 	if err != nil {
-		klog.Errorf("DEBUG: GetDatasetProperties query FAILED for dataset %s: %v", datasetID, err)
 		return nil, fmt.Errorf("failed to query dataset properties for %s: %w", datasetID, err)
 	}
 
 	if len(result) == 0 {
-		klog.Infof("DEBUG: GetDatasetProperties: dataset %s not found", datasetID)
+		klog.V(4).Infof("GetDatasetProperties: dataset %s not found", datasetID)
 		return nil, fmt.Errorf("dataset not found: %s: %w", datasetID, ErrDatasetNotFound)
 	}
 
@@ -1968,25 +1960,23 @@ func (c *Client) GetDatasetProperties(ctx context.Context, datasetID string, pro
 	props := make(map[string]string)
 	dataset := result[0]
 
-	klog.Infof("DEBUG: GetDatasetProperties: dataset %s has UserProperties=%v", datasetID, dataset.UserProperties)
+	klog.V(4).Infof("GetDatasetProperties: dataset %s has UserProperties=%v", datasetID, dataset.UserProperties)
 
 	if dataset.UserProperties == nil {
-		klog.Infof("DEBUG: Dataset %s has no user properties (nil)", datasetID)
 		klog.V(4).Infof("Dataset %s has no user properties", datasetID)
 		return props, nil
 	}
 
 	for _, name := range propertyNames {
 		if prop, ok := dataset.UserProperties[name]; ok {
-			klog.Infof("DEBUG: Found property %q = %q", name, prop.Value)
+			klog.V(5).Infof("Found property %q = %q", name, prop.Value)
 			props[name] = prop.Value
 		} else {
-			klog.Infof("DEBUG: Property %q NOT found in user_properties", name)
+			klog.V(5).Infof("Property %q not found in user_properties", name)
 		}
 	}
 
-	klog.Infof("DEBUG: GetDatasetProperties returning props: %v", props)
-	klog.V(4).Infof("Retrieved %d user properties from dataset: %s", len(props), datasetID)
+	klog.V(4).Infof("Retrieved %d user properties from dataset %s: %v", len(props), datasetID, props)
 	return props, nil
 }
 

@@ -643,11 +643,11 @@ func (s *ControllerService) checkExistingNFSVolume(ctx context.Context, req *csi
 // - "CSI Volume: <name> | Capacity: <bytes>".
 func parseNFSShareCapacity(comment string) int64 {
 	if comment == "" {
-		klog.V(4).Infof("DEBUG: Comment is empty")
+		klog.V(4).Infof("Comment is empty")
 		return 0
 	}
 
-	klog.V(4).Infof("DEBUG: Parsing comment: %s", comment)
+	klog.V(4).Infof("Parsing comment: %s", comment)
 
 	// Parse pipe separator format: "volume-name | Capacity: 1073741824"
 	parts := strings.Split(comment, " | Capacity: ")
@@ -662,13 +662,13 @@ func parseNFSShareCapacity(comment string) int64 {
 		return 0
 	}
 
-	klog.V(4).Infof("DEBUG: Successfully parsed capacity: %d", parsed)
+	klog.V(4).Infof("Successfully parsed capacity: %d", parsed)
 	return parsed
 }
 
 // validateCapacityCompatibility checks if the requested capacity matches the existing capacity.
 func validateCapacityCompatibility(volumeName string, existingCapacity, reqCapacity int64) error {
-	klog.V(4).Infof("DEBUG: About to validate capacity - existing: %d, requested: %d", existingCapacity, reqCapacity)
+	klog.V(4).Infof("Validating capacity - existing: %d, requested: %d", existingCapacity, reqCapacity)
 
 	if existingCapacity > 0 && reqCapacity != existingCapacity {
 		klog.Errorf("Volume %s already exists with different capacity (existing: %d, requested: %d)",

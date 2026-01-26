@@ -5,6 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"strings"
+	"syscall"
 	"time"
 
 	"k8s.io/klog/v2"
@@ -146,10 +150,44 @@ func WithRetryNoResult(ctx context.Context, config Config, fn func() error) erro
 
 // IsRetryableNetworkError returns true if the error is a network-related error
 // that should be retried (connection refused, timeout, etc.).
+//
+// This function uses a two-phase approach for efficiency:
+// 1. First checks for typed errors using errors.As (no string allocation)
+// 2. Falls back to string matching for wrapped/non-standard errors.
 func IsRetryableNetworkError(err error) bool {
 	if err == nil {
 		return false
 	}
+
+	// Phase 1: Check for typed errors (no string allocation)
+	// Check for net.Error interface (includes timeouts)
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+
+	// Check for common syscall errors
+	if errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, syscall.ENETUNREACH) ||
+		errors.Is(err, syscall.EHOSTUNREACH) ||
+		errors.Is(err, syscall.ETIMEDOUT) {
+
+		return true
+	}
+
+	// Check for io.EOF (common in network disconnections)
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+
+	// Check for net.ErrClosed
+	if errors.Is(err, net.ErrClosed) {
+		return true
+	}
+
+	// Phase 2: Fall back to string matching for wrapped/non-standard errors
 	errStr := err.Error()
 	return contains(errStr,
 		"connection refused",
@@ -238,12 +276,8 @@ func DeletionConfig(operationName string) Config {
 // contains checks if any of the substrings are present in the string.
 func contains(s string, substrings ...string) bool {
 	for _, sub := range substrings {
-		if len(s) >= len(sub) {
-			for i := 0; i <= len(s)-len(sub); i++ {
-				if s[i:i+len(sub)] == sub {
-					return true
-				}
-			}
+		if strings.Contains(s, sub) {
+			return true
 		}
 	}
 	return false
