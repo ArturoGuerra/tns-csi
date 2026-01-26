@@ -1,11 +1,6 @@
 name: Encryption Tests
 
 on:
-  # Run after Integration Tests workflow completes successfully
-  workflow_run:
-    workflows: ["Integration Tests"]
-    types:
-      - completed
   # Manual trigger for testing encryption specifically
   workflow_dispatch:
     inputs:

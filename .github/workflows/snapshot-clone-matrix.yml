@@ -1,11 +1,6 @@
 name: Snapshot & Clone Matrix Tests
 
 on:
-  # Run after Integration Tests complete
-  workflow_run:
-    workflows: ["Integration Tests"]
-    types:
-      - completed
   # Manual trigger with scenario selection
   workflow_dispatch:
     inputs:
