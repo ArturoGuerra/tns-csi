@@ -19,19 +19,18 @@
 | Protocol | TNS-CSI | Democratic-CSI |
 |----------|---------|----------------|
 | **NFS** | Yes | Yes |
-| **NVMe-oF** | Yes (primary block protocol) | Yes (zfs-generic-nvmeof driver) |
-| **iSCSI** | No (by design) | Yes (primary block protocol) |
-| **SMB/CIFS** | No (low priority) | Yes |
+| **iSCSI** | Yes | Yes |
+| **NVMe-oF** | Yes | Yes (zfs-generic-nvmeof driver) |
+| **SMB/CIFS** | No | Yes |
 
 ## Key Differences
 
 ### Architecture Philosophy
 
 **TNS-CSI:**
-- Focused on modern protocols (NFS + NVMe-oF)
+- Supports all three major storage protocols (NFS, iSCSI, NVMe-oF)
 - WebSocket-based API communication (no SSH required)
 - Single-purpose: TrueNAS Scale 25.10+ only
-- Deliberately avoids iSCSI in favor of NVMe-oF for better performance
 - Native Go implementation with minimal dependencies
 
 **Democratic-CSI:**
@@ -72,7 +71,7 @@
 | Configurable mount options | Yes | Yes |
 | ZFS property configuration | Yes | Limited |
 | Windows nodes | No | Yes (v1.7.0+) |
-| Multipath | NVMe-native | iSCSI multipath |
+| Multipath | NVMe-native, iSCSI | iSCSI multipath |
 | Local ephemeral volumes | No | Yes |
 | Prometheus metrics | Yes | No (basic) |
 | kubectl plugin | Yes | No |
@@ -99,34 +98,40 @@
 ### Choose TNS-CSI if:
 
 - You're running TrueNAS Scale 25.10+
-- You want NVMe-oF for block storage (better performance than iSCSI)
+- You want all three protocols (NFS, iSCSI, NVMe-oF) from a single driver
 - You prefer a simpler, focused driver with fewer moving parts
 - You don't want to configure SSH access to your NAS
 - You need volume health monitoring (ControllerGetVolume)
 - You want comprehensive Prometheus metrics
 - You need volume adoption/migration features
+- You want a kubectl plugin for volume management
 - You prefer native Go implementation
 
 ### Choose Democratic-CSI if:
 
 - You need production-ready, battle-tested software
 - You're running older TrueNAS/FreeNAS versions or TrueNAS CORE
-- You need iSCSI or SMB support
+- You need SMB/CIFS support
 - You need Windows node support
 - You want multi-backend flexibility (ZoL, Synology, ObjectiveFS, etc.)
 - You need local/ephemeral volume support
 - You need Nomad or Docker Swarm support
 
-## Why NVMe-oF Over iSCSI?
+## NVMe-oF vs iSCSI: When to Use Which?
 
-TNS-CSI deliberately chose NVMe-oF as its block storage protocol instead of iSCSI:
+TNS-CSI supports both NVMe-oF and iSCSI for block storage. Here's when to choose each:
 
-- **Lower latency**: NVMe-oF has significantly lower protocol overhead
-- **Higher IOPS**: Designed for modern NVMe SSDs and their parallel I/O capabilities
-- **Simpler stack**: No SCSI translation layer
-- **Future-proof**: NVMe-oF is the direction the industry is moving
+### Choose NVMe-oF when:
+- You have fast networks (10GbE+) and want maximum performance
+- You're running modern NVMe SSDs and want to utilize their parallel I/O
+- You want lower protocol overhead and latency
+- Your environment supports nvme-tcp kernel module
 
-For workloads that can benefit from high-performance block storage, NVMe-oF provides measurable improvements over iSCSI.
+### Choose iSCSI when:
+- You need broad compatibility with existing infrastructure
+- Your network is slower (1GbE) where protocol overhead matters less
+- You're more familiar with iSCSI administration
+- You need CHAP authentication (note: TNS-CSI doesn't support CHAP yet)
 
 ## Related Links
 
