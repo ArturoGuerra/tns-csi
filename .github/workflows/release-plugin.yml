@@ -236,3 +236,8 @@ jobs:
             dist/tns-csi.yaml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update krew-index
+        uses: rajatjindal/krew-release-bot@v0.0.46
+        with:
+          krew_template_file: dist/tns-csi.yaml
