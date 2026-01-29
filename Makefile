@@ -1,4 +1,4 @@
-.PHONY: all build build-plugin clean test docker-build docker-push lint lint-fix test-coverage test-e2e test-e2e-nfs test-e2e-nvmeof test-e2e-iscsi
+.PHONY: all build build-plugin clean test docker-build docker-push lint lint-fix test-coverage test-e2e test-e2e-nfs test-e2e-nvmeof test-e2e-iscsi changelog
 
 DRIVER_NAME=tns-csi-driver
 PLUGIN_NAME=kubectl-tns_csi
@@ -120,3 +120,12 @@ test-e2e-nvmeof:
 test-e2e-iscsi:
 	@echo "Running iSCSI E2E tests..."
 	ginkgo -v --timeout=40m ./tests/e2e/iscsi/...
+
+# Changelog generation (requires git-cliff: cargo install git-cliff)
+changelog:
+	@echo "Generating changelog..."
+	git-cliff -o CHANGELOG.md
+
+changelog-unreleased:
+	@echo "Generating unreleased changelog..."
+	git-cliff --unreleased
