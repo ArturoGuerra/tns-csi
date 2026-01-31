@@ -26,6 +26,7 @@ var (
 const (
 	protocolNFS    = "nfs"
 	protocolNVMeOF = "nvmeof"
+	protocolISCSI  = "iscsi"
 )
 
 // VolumeDetails contains detailed information about a volume.

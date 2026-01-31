@@ -129,6 +129,7 @@ type adoptionVolumeInfo struct {
 	accessMode    string
 	nfsSharePath  string // NFS specific
 	nvmeNQN       string // NVMe-oF specific
+	iscsiIQN      string // iSCSI specific
 	capacityBytes int64
 }
 
@@ -192,6 +193,8 @@ func extractVolumeInfo(ds *tnsapi.DatasetWithProperties) (*adoptionVolumeInfo, e
 			info.accessMode = "ReadWriteMany"
 		case tnsapi.ProtocolNVMeOF:
 			info.accessMode = "ReadWriteOnce"
+		case tnsapi.ProtocolISCSI:
+			info.accessMode = "ReadWriteOnce"
 		}
 	}
 
@@ -219,6 +222,11 @@ func extractVolumeInfo(ds *tnsapi.DatasetWithProperties) (*adoptionVolumeInfo, e
 	// Extract NVMe-oF-specific info
 	if prop, ok := props[tnsapi.PropertyNVMeSubsystemNQN]; ok {
 		info.nvmeNQN = prop.Value
+	}
+
+	// Extract iSCSI-specific info
+	if prop, ok := props[tnsapi.PropertyISCSIIQN]; ok {
+		info.iscsiIQN = prop.Value
 	}
 
 	return info, nil
@@ -283,6 +291,13 @@ func generatePV(info *adoptionVolumeInfo, server string) map[string]interface{} 
 			volumeAttributes["nqn"] = info.nvmeNQN
 		}
 		volumeAttributes["server"] = server
+
+	case tnsapi.ProtocolISCSI:
+		if info.iscsiIQN != "" {
+			volumeAttributes["iqn"] = info.iscsiIQN
+		}
+		volumeAttributes["portal"] = server + ":3260"
+		volumeAttributes["lun"] = "0"
 	}
 
 	spec := map[string]interface{}{

@@ -15,25 +15,31 @@ import (
 
 // Static errors for import command.
 var (
-	errInvalidProtocol     = errors.New("invalid protocol: must be 'nfs' or 'nvmeof'")
+	errInvalidProtocol     = errors.New("invalid protocol: must be 'nfs', 'nvmeof', or 'iscsi'")
 	errAlreadyManaged      = errors.New("dataset is already managed by tns-csi")
 	errNoNFSShareForImport = errors.New("no NFS share found, use --create-share to create one")
 	errPoolOrParentMissing = errors.New("either --pool or --parent must be specified")
+	errISCSIRequiresZvol   = errors.New("iSCSI requires a zvol")
+	errNoISCSIExtent       = errors.New("no iSCSI extent found for zvol")
+	errNoISCSITargetAssoc  = errors.New("no target association found for extent")
 )
 
 // ImportResult contains the result of the import operation.
 //
 //nolint:govet // field alignment not critical for CLI output struct
 type ImportResult struct {
-	Dataset       string            `json:"dataset"                yaml:"dataset"`
-	VolumeID      string            `json:"volumeId"               yaml:"volumeId"`
-	Protocol      string            `json:"protocol"               yaml:"protocol"`
-	NFSShareID    int               `json:"nfsShareId,omitempty"   yaml:"nfsShareId,omitempty"`
-	NFSSharePath  string            `json:"nfsSharePath,omitempty" yaml:"nfsSharePath,omitempty"`
-	CapacityBytes int64             `json:"capacityBytes"          yaml:"capacityBytes"`
-	Properties    map[string]string `json:"properties"             yaml:"properties"`
-	Success       bool              `json:"success"                yaml:"success"`
-	Message       string            `json:"message"                yaml:"message"`
+	Dataset       string            `json:"dataset"                 yaml:"dataset"`
+	VolumeID      string            `json:"volumeId"                yaml:"volumeId"`
+	Protocol      string            `json:"protocol"                yaml:"protocol"`
+	NFSShareID    int               `json:"nfsShareId,omitempty"    yaml:"nfsShareId,omitempty"`
+	NFSSharePath  string            `json:"nfsSharePath,omitempty"  yaml:"nfsSharePath,omitempty"`
+	ISCSITargetID int               `json:"iscsiTargetId,omitempty" yaml:"iscsiTargetId,omitempty"`
+	ISCSIExtentID int               `json:"iscsiExtentId,omitempty" yaml:"iscsiExtentId,omitempty"`
+	ISCSIIQN      string            `json:"iscsiIqn,omitempty"      yaml:"iscsiIqn,omitempty"`
+	CapacityBytes int64             `json:"capacityBytes"           yaml:"capacityBytes"`
+	Properties    map[string]string `json:"properties"              yaml:"properties"`
+	Success       bool              `json:"success"                 yaml:"success"`
+	Message       string            `json:"message"                 yaml:"message"`
 }
 
 func newImportCmd(url, apiKey, secretRef, outputFormat *string, skipTLSVerify *bool) *cobra.Command {
@@ -99,11 +105,12 @@ Examples:
 	return cmd
 }
 
+//nolint:gocyclo // complexity from protocol switch handling is acceptable
 func runImport(ctx context.Context, url, apiKey, secretRef, outputFormat *string, skipTLSVerify *bool,
 	datasetPath, protocol, volumeID string, createShare bool, storageClass string, dryRun bool) error {
 
 	// Validate protocol
-	if protocol != protocolNFS && protocol != protocolNVMeOF {
+	if protocol != protocolNFS && protocol != protocolNVMeOF && protocol != protocolISCSI {
 		return fmt.Errorf("%w: %s", errInvalidProtocol, protocol)
 	}
 
@@ -190,6 +197,27 @@ func runImport(ctx context.Context, url, apiKey, secretRef, outputFormat *string
 		// NVMe-oF import would need subsystem handling
 		// For now, just warn that it's not fully supported
 		fmt.Fprintln(os.Stderr, "Warning: NVMe-oF import is experimental. Subsystem must already exist.")
+
+	case protocolISCSI:
+		iscsiProps, iscsiErr := handleISCSIImport(ctx, client, dataset, dryRun)
+		if iscsiErr != nil {
+			return fmt.Errorf("iSCSI setup failed: %w", iscsiErr)
+		}
+		for k, v := range iscsiProps {
+			switch k {
+			case "_iscsi_target_id":
+				//nolint:errcheck // ignore parse errors for internal metadata
+				result.ISCSITargetID, _ = strconv.Atoi(v)
+			case "_iscsi_extent_id":
+				//nolint:errcheck // ignore parse errors for internal metadata
+				result.ISCSIExtentID, _ = strconv.Atoi(v)
+			default:
+				props[k] = v
+			}
+		}
+		if iqn, ok := iscsiProps[tnsapi.PropertyISCSIIQN]; ok {
+			result.ISCSIIQN = iqn
+		}
 	}
 
 	result.Properties = props
@@ -226,6 +254,86 @@ func runImport(ctx context.Context, url, apiKey, secretRef, outputFormat *string
 	}
 
 	return nil
+}
+
+func handleISCSIImport(ctx context.Context, client tnsapi.ClientInterface, dataset *tnsapi.Dataset, dryRun bool) (map[string]string, error) {
+	props := make(map[string]string)
+
+	// iSCSI volumes are ZVOLs - verify type
+	if dataset.Type != "VOLUME" {
+		return nil, fmt.Errorf("%w: dataset type is %s", errISCSIRequiresZvol, dataset.Type)
+	}
+
+	// Get zvol path for extent lookup (format: zvol/pool/path)
+	zvolPath := "zvol/" + dataset.ID
+
+	// Find existing extent for this zvol
+	extents, err := client.QueryISCSIExtents(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query iSCSI extents: %w", err)
+	}
+
+	var extent *tnsapi.ISCSIExtent
+	for i := range extents {
+		if extents[i].Disk == zvolPath {
+			extent = &extents[i]
+			break
+		}
+	}
+
+	if extent == nil {
+		return nil, fmt.Errorf("%w: %s", errNoISCSIExtent, zvolPath)
+	}
+
+	// Find target-extent association
+	targetExtents, err := client.QueryISCSITargetExtents(ctx, []interface{}{
+		[]interface{}{"extent", "=", extent.ID},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to query target-extent associations: %w", err)
+	}
+
+	if len(targetExtents) == 0 {
+		return nil, fmt.Errorf("%w: extent ID %d", errNoISCSITargetAssoc, extent.ID)
+	}
+
+	targetExtent := targetExtents[0]
+
+	// Get target details
+	targets, err := client.QueryISCSITargets(ctx, []interface{}{
+		[]interface{}{"id", "=", targetExtent.Target},
+	})
+	if err != nil || len(targets) == 0 {
+		return nil, fmt.Errorf("failed to get target %d: %w", targetExtent.Target, err)
+	}
+
+	target := targets[0]
+
+	// Get global config for base IQN
+	globalConfig, err := client.GetISCSIGlobalConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get iSCSI global config: %w", err)
+	}
+
+	// Build full IQN
+	fullIQN := globalConfig.Basename + ":" + target.Name
+
+	if dryRun {
+		fmt.Printf("DRY RUN - Found iSCSI resources:\n")
+		fmt.Printf("  Extent: %s (ID: %d)\n", extent.Name, extent.ID)
+		fmt.Printf("  Target: %s (ID: %d)\n", target.Name, target.ID)
+		fmt.Printf("  IQN: %s\n", fullIQN)
+		return props, nil
+	}
+
+	props[tnsapi.PropertyISCSIIQN] = fullIQN
+	props[tnsapi.PropertyISCSITargetID] = strconv.Itoa(target.ID)
+	props[tnsapi.PropertyISCSIExtentID] = strconv.Itoa(extent.ID)
+	props["_iscsi_target_id"] = strconv.Itoa(target.ID)
+	props["_iscsi_extent_id"] = strconv.Itoa(extent.ID)
+
+	fmt.Printf("Found iSCSI target: %s (IQN: %s)\n", target.Name, fullIQN)
+	return props, nil
 }
 
 func handleNFSImport(ctx context.Context, client tnsapi.ClientInterface, dataset *tnsapi.Dataset, createShare, dryRun bool) (map[string]string, error) {
@@ -307,6 +415,10 @@ func outputImportResult(result *ImportResult, format string) error {
 			fmt.Printf("  Capacity:  %s\n", formatBytes(result.CapacityBytes))
 			if result.NFSSharePath != "" {
 				fmt.Printf("  NFS Share: %s (ID: %d)\n", result.NFSSharePath, result.NFSShareID)
+			}
+			if result.ISCSIIQN != "" {
+				fmt.Printf("  iSCSI IQN: %s (Target ID: %d, Extent ID: %d)\n",
+					result.ISCSIIQN, result.ISCSITargetID, result.ISCSIExtentID)
 			}
 		} else {
 			fmt.Printf("Failed to import %s: %s\n", result.Dataset, result.Message)
