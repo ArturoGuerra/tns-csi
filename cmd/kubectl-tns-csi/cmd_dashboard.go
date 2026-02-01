@@ -9,7 +9,9 @@ import (
 	"html/template"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -22,7 +24,10 @@ import (
 //go:embed templates/*.html
 var templateFS embed.FS
 
-var errPoolNotConfigured = errors.New("pool not configured - start dashboard with --pool flag")
+var (
+	errPoolNotConfigured   = errors.New("pool not configured - start dashboard with --pool flag")
+	errUnsupportedPlatform = errors.New("unsupported platform for opening browser")
+)
 
 // DashboardData contains all data for the dashboard template.
 //
@@ -59,15 +64,17 @@ type dashboardServer struct {
 	pool      string // ZFS pool for unmanaged volume search
 }
 
-func newServeCmd(url, apiKey, secretRef, _ *string, skipTLSVerify *bool) *cobra.Command {
+func newDashboardCmd(url, apiKey, secretRef, _ *string, skipTLSVerify *bool) *cobra.Command {
 	var (
-		port int
-		pool string
+		port        int
+		pool        string
+		openBrowser bool
 	)
 
 	cmd := &cobra.Command{
-		Use:   "serve",
-		Short: "Start a web dashboard for tns-csi volumes",
+		Use:     "dashboard",
+		Aliases: []string{"serve"},
+		Short:   "Start a web dashboard for tns-csi volumes",
 		Long: `Start a web-based dashboard to view and manage tns-csi volumes.
 
 The dashboard provides:
@@ -78,29 +85,33 @@ The dashboard provides:
   - Unmanaged volume discovery (requires --pool flag)
 
 Examples:
-  # Start dashboard on default port 8080
-  kubectl tns-csi serve
+  # Start dashboard and open in browser
+  kubectl tns-csi dashboard
+
+  # Start without opening browser
+  kubectl tns-csi dashboard --open=false
 
   # Start on custom port
-  kubectl tns-csi serve --port 9090
+  kubectl tns-csi dashboard --port 9090
 
   # With pool for unmanaged volume discovery
-  kubectl tns-csi serve --pool storage
+  kubectl tns-csi dashboard --pool storage
 
   # With explicit credentials
-  kubectl tns-csi serve --url wss://truenas:443/api/current --api-key KEY`,
+  kubectl tns-csi dashboard --url wss://truenas:443/api/current --api-key KEY`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runServe(cmd.Context(), url, apiKey, secretRef, skipTLSVerify, port, pool)
+			return runDashboard(cmd.Context(), url, apiKey, secretRef, skipTLSVerify, port, pool, openBrowser)
 		},
 	}
 
 	cmd.Flags().IntVar(&port, "port", 8080, "Port to listen on")
 	cmd.Flags().StringVar(&pool, "pool", "", "ZFS pool to search for unmanaged volumes")
+	cmd.Flags().BoolVar(&openBrowser, "open", true, "Open dashboard in default browser")
 
 	return cmd
 }
 
-func runServe(ctx context.Context, url, apiKey, secretRef *string, skipTLSVerify *bool, port int, pool string) error {
+func runDashboard(ctx context.Context, url, apiKey, secretRef *string, skipTLSVerify *bool, port int, pool string, openBrowser bool) error {
 	// Get connection config
 	cfg, err := getConnectionConfig(ctx, url, apiKey, secretRef, skipTLSVerify)
 	if err != nil {
@@ -160,8 +171,23 @@ func runServe(ctx context.Context, url, apiKey, secretRef *string, skipTLSVerify
 		close(done)
 	}()
 
-	fmt.Printf("TNS-CSI Dashboard starting on http://localhost:%d\n", port)
+	dashboardURL := fmt.Sprintf("http://localhost:%d", port)
+	fmt.Printf("TNS-CSI Dashboard starting on %s\n", dashboardURL)
 	fmt.Println("Press Ctrl+C to stop")
+
+	// Open browser if requested
+	if openBrowser {
+		//nolint:contextcheck // Background goroutine intentionally uses fresh context for browser open
+		go func() {
+			// Small delay to ensure server is ready
+			time.Sleep(500 * time.Millisecond)
+			openCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := openURL(openCtx, dashboardURL); err != nil {
+				klog.V(2).Infof("Could not open browser: %v", err)
+			}
+		}()
+	}
 
 	if err := httpServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("server error: %w", err)
@@ -169,6 +195,24 @@ func runServe(ctx context.Context, url, apiKey, secretRef *string, skipTLSVerify
 
 	<-done
 	return nil
+}
+
+// openURL opens the specified URL in the default browser.
+func openURL(ctx context.Context, url string) error {
+	var cmd *exec.Cmd
+
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.CommandContext(ctx, "open", url)
+	case "linux":
+		cmd = exec.CommandContext(ctx, "xdg-open", url)
+	case "windows":
+		cmd = exec.CommandContext(ctx, "cmd", "/c", "start", url)
+	default:
+		return errUnsupportedPlatform
+	}
+
+	return cmd.Start()
 }
 
 func (s *dashboardServer) getClient(ctx context.Context) (tnsapi.ClientInterface, error) {
