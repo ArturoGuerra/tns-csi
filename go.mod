@@ -1,6 +1,6 @@
 module github.com/fenio/tns-csi
 
-go 1.25.6
+go 1.25.7
 
 require (
 	github.com/coder/websocket v1.8.14
