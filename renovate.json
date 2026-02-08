@@ -1,0 +1,46 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "labels": ["dependencies"],
+  "ignorePresets": [":ignoreModulesAndTests"],
+  "packageRules": [
+    {
+      "description": "Go modules",
+      "matchManagers": ["gomod"],
+      "addLabels": ["go"],
+      "commitMessagePrefix": "chore(deps):"
+    },
+    {
+      "description": "Block k8s.io major version bumps",
+      "matchManagers": ["gomod"],
+      "matchPackagePrefixes": ["k8s.io/"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "description": "GitHub Actions",
+      "matchManagers": ["github-actions"],
+      "addLabels": ["github-actions"],
+      "commitMessagePrefix": "chore(ci):"
+    },
+    {
+      "description": "Docker images — only stable releases",
+      "matchManagers": ["dockerfile"],
+      "addLabels": ["docker"],
+      "commitMessagePrefix": "chore(docker):",
+      "allowedVersions": "!/^.*(?:alpha|beta|rc).*$/"
+    },
+    {
+      "description": "npm (dashboard)",
+      "matchManagers": ["npm"],
+      "addLabels": ["npm"],
+      "commitMessagePrefix": "chore(deps):"
+    },
+    {
+      "description": "Skip pre-release versions globally",
+      "matchManagers": ["gomod", "npm"],
+      "ignoreUnstable": true
+    }
+  ],
+  "schedule": ["every weekday"]
+}
