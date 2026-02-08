@@ -9,9 +9,10 @@
       "description": "Helm values: registry.k8s.io sidecar images",
       "fileMatch": ["charts/.+/values\\.yaml$"],
       "matchStrings": [
-        "repository:\\s*(?<registryUrl>registry\\.k8s\\.io)/(?<depName>[^\\s]+)\\s+tag:\\s*(?<currentValue>[^\\s]+)"
+        "repository:\\s*registry\\.k8s\\.io/(?<depName>[^\\s]+)\\s+tag:\\s*(?<currentValue>[^\\s]+)"
       ],
-      "datasourceTemplate": "docker"
+      "datasourceTemplate": "docker",
+      "registryUrlTemplate": "https://registry.k8s.io"
     }
   ],
   "packageRules": [
