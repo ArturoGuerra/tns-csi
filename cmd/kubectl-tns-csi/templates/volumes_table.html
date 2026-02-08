@@ -7,6 +7,8 @@
             <th class="sortable" onclick="sortTable(this)">Dataset</th>
             <th class="sortable" onclick="sortTable(this)">Protocol</th>
             <th class="sortable" onclick="sortTable(this)">Capacity</th>
+            <th class="sortable" onclick="sortTable(this)">PVC</th>
+            <th class="sortable" onclick="sortTable(this)">Namespace</th>
             <th class="sortable" onclick="sortTable(this)">Health</th>
             <th class="sortable" onclick="sortTable(this)">Adoptable</th>
         </tr>
@@ -28,6 +30,8 @@
                 {{end}}
             </td>
             <td>{{.CapacityHuman}}</td>
+            <td>{{if .K8s}}{{if .K8s.PVCName}}{{.K8s.PVCName}}{{else}}<span class="text-muted">-</span>{{end}}{{else}}<span class="text-muted">-</span>{{end}}</td>
+            <td>{{if .K8s}}{{if .K8s.PVCNamespace}}{{.K8s.PVCNamespace}}{{else}}<span class="text-muted">-</span>{{end}}{{else}}<span class="text-muted">-</span>{{end}}</td>
             <td>
                 {{if eq .HealthStatus "Healthy"}}
                 <span class="badge badge-healthy">Healthy</span>

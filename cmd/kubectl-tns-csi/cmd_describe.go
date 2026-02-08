@@ -60,6 +60,9 @@ type VolumeDetails struct {
 	OriginSnapshot string `json:"originSnapshot,omitempty" yaml:"originSnapshot,omitempty"` // ZFS origin for COW clones
 	ZFSOrigin      string `json:"zfsOrigin,omitempty"      yaml:"zfsOrigin,omitempty"`      // Actual ZFS origin property
 
+	// Kubernetes binding info
+	K8s *K8sVolumeBinding `json:"k8s,omitempty" yaml:"k8s,omitempty"`
+
 	// NFS-specific (only if protocol is NFS)
 	NFSShare *NFSShareDetails `json:"nfsShare,omitempty" yaml:"nfsShare,omitempty"`
 
@@ -136,6 +139,14 @@ func runDescribe(ctx context.Context, volumeRef string, url, apiKey, secretRef, 
 	details, err := getVolumeDetails(ctx, client, volumeRef)
 	if err != nil {
 		return err
+	}
+
+	// Enrich with Kubernetes PV/PVC/Pod data (best-effort, include pods for detail view)
+	k8sData := enrichWithK8sData(ctx, true)
+	if k8sData.Available {
+		if binding, ok := k8sData.Bindings[details.VolumeID]; ok {
+			details.K8s = binding
+		}
 	}
 
 	// Output based on format
@@ -335,6 +346,24 @@ func outputVolumeDetailsTable(details *VolumeDetails) error {
 		describeKV("Mount Path", details.MountPath)
 	}
 	fmt.Println()
+
+	// Kubernetes
+	if details.K8s != nil {
+		colorHeader.Println("=== Kubernetes ===") //nolint:errcheck,gosec
+		describeKV("PV Name", details.K8s.PVName)
+		if details.K8s.PVCName != "" {
+			describeKV("PVC", fmt.Sprintf("%s/%s", details.K8s.PVCNamespace, details.K8s.PVCName))
+		} else {
+			describeKV("PVC", colorMuted.Sprint("none"))
+		}
+		describeKV("PV Status", details.K8s.PVStatus)
+		if len(details.K8s.Pods) > 0 {
+			describeKV("Pods", strings.Join(details.K8s.Pods, ", "))
+		} else {
+			describeKV("Pods", colorMuted.Sprint("none"))
+		}
+		fmt.Println()
+	}
 
 	// Capacity
 	colorHeader.Println("=== Capacity ===") //nolint:errcheck,gosec

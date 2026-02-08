@@ -290,6 +290,16 @@ func (s *dashboardServer) fetchAllData(ctx context.Context, client tnsapi.Client
 	// Run health checks and annotate volumes
 	annotateVolumesWithHealth(ctx, client, data.Volumes)
 
+	// Enrich with Kubernetes PV/PVC data (best-effort, no pods for list view)
+	k8sData := enrichWithK8sData(ctx, false)
+	if k8sData.Available {
+		for i := range data.Volumes {
+			if binding, ok := k8sData.Bindings[data.Volumes[i].VolumeID]; ok {
+				data.Volumes[i].K8s = binding
+			}
+		}
+	}
+
 	// Calculate summary
 	data.Summary = s.calculateSummary(data.Volumes, data.Snapshots, data.Clones)
 
@@ -435,6 +445,16 @@ func (s *dashboardServer) handlePartialVolumes(w http.ResponseWriter, r *http.Re
 	// Annotate with health status
 	annotateVolumesWithHealth(ctx, client, volumes)
 
+	// Enrich with Kubernetes PV/PVC data (best-effort, no pods for table view)
+	k8sData := enrichWithK8sData(ctx, false)
+	if k8sData.Available {
+		for i := range volumes {
+			if binding, ok := k8sData.Bindings[volumes[i].VolumeID]; ok {
+				volumes[i].K8s = binding
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.templates.ExecuteTemplate(w, "volumes_table.html", volumes); err != nil {
 		klog.Errorf("Template error: %v", err)
@@ -578,6 +598,14 @@ func (s *dashboardServer) handlePartialVolumeDetail(w http.ResponseWriter, r *ht
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Enrich with Kubernetes PV/PVC/Pod data (best-effort, include pods for detail view)
+	k8sData := enrichWithK8sData(ctx, true)
+	if k8sData.Available {
+		if binding, ok := k8sData.Bindings[details.VolumeID]; ok {
+			details.K8s = binding
+		}
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

@@ -52,6 +52,39 @@
         </dl>
     </div>
 
+    {{if .K8s}}
+    <div class="detail-section">
+        <h4>Kubernetes</h4>
+        <dl class="detail-grid">
+            <dt>PV Name</dt>
+            <dd class="mono">{{.K8s.PVName}}</dd>
+
+            <dt>PVC</dt>
+            <dd>{{if .K8s.PVCName}}{{.K8s.PVCNamespace}}/{{.K8s.PVCName}}{{else}}<span class="text-muted">none</span>{{end}}</dd>
+
+            <dt>PV Status</dt>
+            <dd>
+                {{if eq .K8s.PVStatus "Bound"}}
+                <span class="badge badge-healthy">{{.K8s.PVStatus}}</span>
+                {{else if eq .K8s.PVStatus "Released"}}
+                <span class="badge badge-degraded">{{.K8s.PVStatus}}</span>
+                {{else}}
+                <span class="badge">{{.K8s.PVStatus}}</span>
+                {{end}}
+            </dd>
+
+            <dt>Pods</dt>
+            <dd>
+                {{if .K8s.Pods}}
+                {{range $i, $pod := .K8s.Pods}}{{if $i}}, {{end}}<span class="mono">{{$pod}}</span>{{end}}
+                {{else}}
+                <span class="text-muted">none</span>
+                {{end}}
+            </dd>
+        </dl>
+    </div>
+    {{end}}
+
     <div class="detail-section">
         <h4>Capacity</h4>
         <dl class="detail-grid">

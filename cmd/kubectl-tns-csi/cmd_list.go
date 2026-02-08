@@ -25,19 +25,22 @@ const (
 )
 
 // VolumeInfo represents a tns-csi managed volume.
+//
+//nolint:govet // field alignment not critical for CLI output struct
 type VolumeInfo struct {
-	Dataset           string `json:"dataset"           yaml:"dataset"`
-	VolumeID          string `json:"volumeId"          yaml:"volumeId"`
-	Protocol          string `json:"protocol"          yaml:"protocol"`
-	CapacityHuman     string `json:"capacityHuman"     yaml:"capacityHuman"`
-	DeleteStrategy    string `json:"deleteStrategy"    yaml:"deleteStrategy"`
-	Type              string `json:"type"              yaml:"type"`
-	ContentSourceType string `json:"contentSourceType" yaml:"contentSourceType"` // "snapshot", "volume", or ""
-	ContentSourceID   string `json:"contentSourceId"   yaml:"contentSourceId"`   // Source snapshot/volume ID
-	HealthStatus      string `json:"healthStatus"      yaml:"healthStatus"`      // "Healthy", "Degraded", "Unhealthy", or ""
-	HealthIssue       string `json:"healthIssue"       yaml:"healthIssue"`       // First health issue, if any
-	CapacityBytes     int64  `json:"capacityBytes"     yaml:"capacityBytes"`
-	Adoptable         bool   `json:"adoptable"         yaml:"adoptable"`
+	Dataset           string            `json:"dataset"           yaml:"dataset"`
+	VolumeID          string            `json:"volumeId"          yaml:"volumeId"`
+	Protocol          string            `json:"protocol"          yaml:"protocol"`
+	CapacityHuman     string            `json:"capacityHuman"     yaml:"capacityHuman"`
+	DeleteStrategy    string            `json:"deleteStrategy"    yaml:"deleteStrategy"`
+	Type              string            `json:"type"              yaml:"type"`
+	ContentSourceType string            `json:"contentSourceType" yaml:"contentSourceType"` // "snapshot", "volume", or ""
+	ContentSourceID   string            `json:"contentSourceId"   yaml:"contentSourceId"`   // Source snapshot/volume ID
+	HealthStatus      string            `json:"healthStatus"      yaml:"healthStatus"`      // "Healthy", "Degraded", "Unhealthy", or ""
+	HealthIssue       string            `json:"healthIssue"       yaml:"healthIssue"`       // First health issue, if any
+	K8s               *K8sVolumeBinding `json:"k8s,omitempty"     yaml:"k8s,omitempty"`
+	CapacityBytes     int64             `json:"capacityBytes"     yaml:"capacityBytes"`
+	Adoptable         bool              `json:"adoptable"         yaml:"adoptable"`
 }
 
 func newListCmd(url, apiKey, secretRef, outputFormat *string, skipTLSVerify *bool) *cobra.Command {
@@ -65,7 +68,6 @@ Examples:
 	return cmd
 }
 
-//nolint:dupl // Similar connect+query pattern but different data types
 func runList(ctx context.Context, url, apiKey, secretRef, outputFormat *string, skipTLSVerify *bool) error {
 	// Get connection config
 	cfg, err := getConnectionConfig(ctx, url, apiKey, secretRef, skipTLSVerify)
@@ -87,6 +89,16 @@ func runList(ctx context.Context, url, apiKey, secretRef, outputFormat *string, 
 	spin.stop()
 	if err != nil {
 		return fmt.Errorf("failed to query volumes: %w", err)
+	}
+
+	// Enrich with Kubernetes PV/PVC data (best-effort, no pods for list view)
+	k8sData := enrichWithK8sData(ctx, false)
+	if k8sData.Available {
+		for i := range volumes {
+			if binding, ok := k8sData.Bindings[volumes[i].VolumeID]; ok {
+				volumes[i].K8s = binding
+			}
+		}
 	}
 
 	// Output based on format
@@ -173,7 +185,7 @@ func outputVolumes(volumes []VolumeInfo, format string) error {
 
 	case outputFormatTable, "":
 		t := newStyledTable()
-		t.AppendHeader(table.Row{"DATASET", "VOLUME_ID", "PROTOCOL", "CAPACITY", "TYPE", "CLONE_SOURCE", "ADOPTABLE"})
+		t.AppendHeader(table.Row{"DATASET", "VOLUME_ID", "PROTOCOL", "CAPACITY", "PVC", "NAMESPACE", "TYPE", "CLONE_SOURCE", "ADOPTABLE"})
 		for i := range volumes {
 			v := &volumes[i]
 			adoptable := ""
@@ -185,7 +197,14 @@ func outputVolumes(volumes []VolumeInfo, format string) error {
 			if v.ContentSourceType != "" && v.ContentSourceID != "" {
 				cloneSource = fmt.Sprintf("%s:%s", v.ContentSourceType, v.ContentSourceID)
 			}
-			t.AppendRow(table.Row{v.Dataset, v.VolumeID, protocolBadge(v.Protocol), v.CapacityHuman, v.Type, cloneSource, adoptable})
+			// K8s PVC/Namespace
+			pvcName := colorMuted.Sprint("-")
+			pvcNamespace := colorMuted.Sprint("-")
+			if v.K8s != nil && v.K8s.PVCName != "" {
+				pvcName = v.K8s.PVCName
+				pvcNamespace = v.K8s.PVCNamespace
+			}
+			t.AppendRow(table.Row{v.Dataset, v.VolumeID, protocolBadge(v.Protocol), v.CapacityHuman, pvcName, pvcNamespace, v.Type, cloneSource, adoptable})
 		}
 		renderTable(t)
 		return nil

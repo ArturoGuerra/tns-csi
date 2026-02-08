@@ -115,6 +115,7 @@ type pvInfo struct {
 	VolumeID string // CSI volume handle
 	PVCName  string
 	PVCNs    string
+	Status   string // PV phase (Bound, Released, etc.)
 }
 
 // pvcInfo holds PVC information.
@@ -143,6 +144,7 @@ func getK8sVolumeInfo(ctx context.Context, client *kubernetes.Clientset, allName
 		info := pvInfo{
 			Name:     pv.Name,
 			VolumeID: pv.Spec.CSI.VolumeHandle,
+			Status:   string(pv.Status.Phase),
 		}
 
 		if pv.Spec.ClaimRef != nil {

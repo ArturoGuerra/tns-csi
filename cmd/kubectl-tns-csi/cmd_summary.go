@@ -82,7 +82,6 @@ Examples:
 	return cmd
 }
 
-//nolint:dupl // Similar connect+query pattern but different data types
 func runSummary(ctx context.Context, url, apiKey, secretRef, outputFormat *string, skipTLSVerify *bool) error {
 	// Get connection config
 	cfg, err := getConnectionConfig(ctx, url, apiKey, secretRef, skipTLSVerify)
