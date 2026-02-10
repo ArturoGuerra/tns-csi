@@ -78,8 +78,8 @@ var _ = Describe("NFS Volume Adoption", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(volumeHandle).NotTo(BeEmpty())
 
-		datasetPath := fmt.Sprintf("%s/%s", f.Config.TrueNASPool, volumeHandle)
-		nfsSharePath := fmt.Sprintf("/mnt/%s/%s", f.Config.TrueNASPool, volumeHandle)
+		datasetPath := volumeHandle
+		nfsSharePath := "/mnt/" + volumeHandle
 		if f.Verbose() {
 			GinkgoWriter.Printf("Volume handle: %s\n", volumeHandle)
 		}
@@ -305,7 +305,7 @@ var _ = Describe("NFS Volume Adoption", func() {
 
 		By("Verifying dataset exists on TrueNAS")
 		Expect(f.TrueNAS).NotTo(BeNil())
-		datasetPath := fmt.Sprintf("%s/%s", f.Config.TrueNASPool, volumeHandle)
+		datasetPath := volumeHandle
 		exists, err := f.TrueNAS.DatasetExists(ctx, datasetPath)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(exists).To(BeTrue())
@@ -347,7 +347,7 @@ var _ = Describe("NFS Volume Adoption", func() {
 		volumeHandle, err := f.K8s.GetVolumeHandle(ctx, pvName)
 		Expect(err).NotTo(HaveOccurred())
 
-		datasetPath := fmt.Sprintf("%s/%s", f.Config.TrueNASPool, volumeHandle)
+		datasetPath := volumeHandle
 		if f.Verbose() {
 			GinkgoWriter.Printf("Volume handle: %s\n", volumeHandle)
 		}
@@ -378,7 +378,7 @@ var _ = Describe("NFS Volume Adoption", func() {
 		Expect(exists).To(BeTrue(), "Dataset should be retained with deleteStrategy=retain")
 
 		By("Cleaning up retained resources from TrueNAS")
-		nfsSharePath := fmt.Sprintf("/mnt/%s/%s", f.Config.TrueNASPool, volumeHandle)
+		nfsSharePath := "/mnt/" + volumeHandle
 		_ = f.TrueNAS.DeleteNFSShare(ctx, nfsSharePath) // May fail if already deleted
 		err = f.TrueNAS.DeleteDataset(ctx, datasetPath)
 		Expect(err).NotTo(HaveOccurred())

@@ -79,10 +79,8 @@ var _ = Describe("iSCSI Delete Strategy Retain", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(volumeHandle).NotTo(BeEmpty())
 
-		// Volume handle is just the volume name (e.g., pvc-xxx)
-		// The ZVOL path on TrueNAS will be: pool/parentDataset/volumeName
-		// Since we use the default parentDataset (same as pool), the path is: pool/volumeName
-		zvolPath := fmt.Sprintf("%s/%s", f.Config.TrueNASPool, volumeHandle)
+		// Volume handle is the full dataset path (e.g., pool/parent/pvc-xxx)
+		zvolPath := volumeHandle
 		GinkgoWriter.Printf("Volume handle: %s\n", volumeHandle)
 		GinkgoWriter.Printf("Expected ZVOL path on TrueNAS: %s\n", zvolPath)
 

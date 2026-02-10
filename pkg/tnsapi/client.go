@@ -2288,12 +2288,13 @@ func (c *Client) FindDatasetsByProperty(ctx context.Context, prefix, propertyNam
 	klog.V(4).Infof("Finding datasets with property %s=%s under prefix: %q", propertyName, propertyValue, prefix)
 
 	// Query all datasets under the prefix with user properties included
+	// Note: retrieve_children must NOT be false here - this is a scan across all
+	// datasets under the prefix, so we need child datasets to be included.
 	var result []DatasetWithProperties
 	queryOpts := map[string]interface{}{
 		"extra": map[string]interface{}{
-			"flat":              true,
-			"retrieve_children": false,
-			"user_properties":   true,
+			"flat":            true,
+			"user_properties": true,
 		},
 	}
 

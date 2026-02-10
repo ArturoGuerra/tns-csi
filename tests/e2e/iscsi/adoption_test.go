@@ -80,7 +80,7 @@ var _ = Describe("iSCSI Volume Adoption", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(volumeHandle).NotTo(BeEmpty())
 
-		zvolPath := fmt.Sprintf("%s/%s", f.Config.TrueNASPool, volumeHandle)
+		zvolPath := volumeHandle
 		if f.Verbose() {
 			GinkgoWriter.Printf("Volume handle: %s\n", volumeHandle)
 		}
@@ -265,7 +265,7 @@ var _ = Describe("iSCSI Volume Adoption", func() {
 		volumeHandle, err := f.K8s.GetVolumeHandle(ctx, pvName)
 		Expect(err).NotTo(HaveOccurred())
 
-		zvolPath := fmt.Sprintf("%s/%s", f.Config.TrueNASPool, volumeHandle)
+		zvolPath := volumeHandle
 		if f.Verbose() {
 			GinkgoWriter.Printf("Volume handle: %s\n", volumeHandle)
 		}
