@@ -856,11 +856,38 @@ func TestListSnapshots(t *testing.T) {
 			name: "list all snapshots",
 			req:  &csi.ListSnapshotsRequest{},
 			mockSetup: func(m *MockAPIClientForSnapshots) {
-				m.QuerySnapshotsFunc = func(ctx context.Context, filters []interface{}) ([]tnsapi.Snapshot, error) {
-					return []tnsapi.Snapshot{
-						{ID: "tank/vol1@snap1", Dataset: "tank/vol1"},
-						{ID: "tank/vol2@snap2", Dataset: "tank/vol2"},
+				m.FindDatasetsByPropertyFunc = func(ctx context.Context, prefix, propertyName, propertyValue string) ([]tnsapi.DatasetWithProperties, error) {
+					return []tnsapi.DatasetWithProperties{
+						{
+							Dataset: tnsapi.Dataset{ID: "tank/vol1", Name: "tank/vol1"},
+							UserProperties: map[string]tnsapi.UserProperty{
+								tnsapi.PropertyCSIVolumeName: {Value: "vol1"},
+								tnsapi.PropertyProtocol:      {Value: "nfs"},
+							},
+						},
+						{
+							Dataset: tnsapi.Dataset{ID: "tank/vol2", Name: "tank/vol2"},
+							UserProperties: map[string]tnsapi.UserProperty{
+								tnsapi.PropertyCSIVolumeName: {Value: "vol2"},
+								tnsapi.PropertyProtocol:      {Value: "nfs"},
+							},
+						},
 					}, nil
+				}
+				m.QuerySnapshotsFunc = func(ctx context.Context, filters []interface{}) ([]tnsapi.Snapshot, error) {
+					// Return snapshots per dataset based on filter
+					if len(filters) > 0 {
+						if f, ok := filters[0].([]interface{}); ok && len(f) == 3 && f[0] == "dataset" {
+							datasetID, _ := f[2].(string)
+							switch datasetID {
+							case "tank/vol1":
+								return []tnsapi.Snapshot{{ID: "tank/vol1@snap1", Name: "snap1", Dataset: "tank/vol1"}}, nil
+							case "tank/vol2":
+								return []tnsapi.Snapshot{{ID: "tank/vol2@snap2", Name: "snap2", Dataset: "tank/vol2"}}, nil
+							}
+						}
+					}
+					return nil, nil
 				}
 			},
 			wantErr: false,
@@ -963,7 +990,7 @@ func TestListSnapshots(t *testing.T) {
 			name: "TrueNAS API error",
 			req:  &csi.ListSnapshotsRequest{},
 			mockSetup: func(m *MockAPIClientForSnapshots) {
-				m.QuerySnapshotsFunc = func(ctx context.Context, filters []interface{}) ([]tnsapi.Snapshot, error) {
+				m.FindDatasetsByPropertyFunc = func(ctx context.Context, prefix, propertyName, propertyValue string) ([]tnsapi.DatasetWithProperties, error) {
 					return nil, errors.New("TrueNAS API error")
 				}
 			},
