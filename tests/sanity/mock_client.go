@@ -577,6 +577,27 @@ func (m *MockClient) QueryNFSShare(ctx context.Context, path string) ([]tnsapi.N
 	return result, nil
 }
 
+// QueryNFSShareByID mocks sharing.nfs.query with ID filter.
+func (m *MockClient) QueryNFSShareByID(ctx context.Context, shareID int) (*tnsapi.NFSShare, error) {
+	m.logCall("QueryNFSShareByID", shareID)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, share := range m.nfsShares {
+		if share.ID == shareID {
+			return &tnsapi.NFSShare{
+				ID:      share.ID,
+				Path:    share.Path,
+				Comment: share.Comment,
+				Enabled: share.Enabled,
+			}, nil
+		}
+	}
+
+	return nil, nil //nolint:nilnil // nil means "not found"
+}
+
 // QueryAllNFSShares mocks sharing.nfs.query (all shares).
 // The pathPrefix parameter is used for filtering:
 // - If empty, returns all shares.
@@ -785,6 +806,27 @@ func (m *MockClient) DeleteNVMeOFNamespace(ctx context.Context, namespaceID int)
 
 	delete(m.namespaces, namespaceID)
 	return nil
+}
+
+// QueryNVMeOFNamespaceByID mocks nvmet.namespace.query with ID filter.
+func (m *MockClient) QueryNVMeOFNamespaceByID(ctx context.Context, namespaceID int) (*tnsapi.NVMeOFNamespace, error) {
+	m.logCall("QueryNVMeOFNamespaceByID", namespaceID)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, ns := range m.namespaces {
+		if ns.ID == namespaceID {
+			return &tnsapi.NVMeOFNamespace{
+				ID:     ns.ID,
+				Device: ns.Device,
+				Subsys: &tnsapi.NVMeOFNamespaceSubsystem{ID: ns.SubsystemID},
+				NSID:   ns.NSID,
+			}, nil
+		}
+	}
+
+	return nil, nil //nolint:nilnil // nil means "not found"
 }
 
 // QueryAllNVMeOFNamespaces mocks nvmeof.namespace.query.

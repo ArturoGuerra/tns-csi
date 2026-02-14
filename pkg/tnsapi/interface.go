@@ -39,6 +39,7 @@ type ClientInterface interface {
 	CreateNFSShare(ctx context.Context, params NFSShareCreateParams) (*NFSShare, error)
 	DeleteNFSShare(ctx context.Context, shareID int) error
 	QueryNFSShare(ctx context.Context, path string) ([]NFSShare, error)
+	QueryNFSShareByID(ctx context.Context, shareID int) (*NFSShare, error)
 	QueryAllNFSShares(ctx context.Context, pathPrefix string) ([]NFSShare, error)
 
 	// ZVOL operations
@@ -53,6 +54,7 @@ type ClientInterface interface {
 
 	CreateNVMeOFNamespace(ctx context.Context, params NVMeOFNamespaceCreateParams) (*NVMeOFNamespace, error)
 	DeleteNVMeOFNamespace(ctx context.Context, namespaceID int) error
+	QueryNVMeOFNamespaceByID(ctx context.Context, namespaceID int) (*NVMeOFNamespace, error)
 	QueryAllNVMeOFNamespaces(ctx context.Context) ([]NVMeOFNamespace, error)
 
 	AddSubsystemToPort(ctx context.Context, subsystemID, portID int) error

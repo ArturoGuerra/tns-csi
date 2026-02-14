@@ -1888,7 +1888,13 @@ type volumeDiscoveryResult struct {
 // discoverVolumeBySearching searches for a volume by querying NFS shares, NVMe-oF namespaces, and iSCSI extents.
 // This is used as a fallback when the parent dataset is not specified.
 func (s *ControllerService) discoverVolumeBySearching(ctx context.Context, volumeID string) *volumeDiscoveryResult {
-	// First try NFS shares
+	// Use property-based lookup first (handles both new and legacy volume IDs)
+	meta, err := s.lookupVolumeByCSIName(ctx, "", volumeID)
+	if err == nil && meta != nil {
+		return &volumeDiscoveryResult{datasetName: meta.DatasetName, protocol: meta.Protocol}
+	}
+
+	// Fallback for unmigrated volumes: search NFS shares, NVMe-oF namespaces, iSCSI extents
 	shares, err := s.apiClient.QueryAllNFSShares(ctx, volumeID)
 	if err == nil && len(shares) > 0 {
 		for _, share := range shares {
@@ -1902,7 +1908,6 @@ func (s *ControllerService) discoverVolumeBySearching(ctx context.Context, volum
 		}
 	}
 
-	// Try NVMe-oF namespaces
 	namespaces, err := s.apiClient.QueryAllNVMeOFNamespaces(ctx)
 	if err == nil {
 		for _, ns := range namespaces {
@@ -1916,7 +1921,6 @@ func (s *ControllerService) discoverVolumeBySearching(ctx context.Context, volum
 		}
 	}
 
-	// Try iSCSI extents
 	extents, err := s.apiClient.QueryISCSIExtents(ctx, nil)
 	if err == nil {
 		for _, extent := range extents {

@@ -286,9 +286,10 @@ func (c *Client) connect() error {
 		return fmt.Errorf("failed to dial: %w", err)
 	}
 
-	// Set read limit to 3MB to handle large TrueNAS responses (e.g., dataset lists with 50+ volumes)
-	// Default is 32KB which is too small for production workloads
-	conn.SetReadLimit(3 * 1024 * 1024)
+	// Set read limit to 10MB as safety net for large TrueNAS responses.
+	// Most queries now use server-side filters, but ListVolumes/ListSnapshots may still
+	// return large payloads on clusters with many volumes.
+	conn.SetReadLimit(10 * 1024 * 1024)
 
 	// Note: coder/websocket handles ping/pong automatically via the underlying connection.
 	// We still run our own ping loop for connection health monitoring and metrics.
@@ -1078,6 +1079,27 @@ func (c *Client) QueryNFSShare(ctx context.Context, path string) ([]NFSShare, er
 	return result, nil
 }
 
+// QueryNFSShareByID queries a single NFS share by its ID using server-side filtering.
+func (c *Client) QueryNFSShareByID(ctx context.Context, shareID int) (*NFSShare, error) {
+	klog.V(4).Infof("Querying NFS share by ID: %d", shareID)
+
+	var result []NFSShare
+	err := c.Call(ctx, "sharing.nfs.query", []interface{}{
+		[]interface{}{
+			[]interface{}{"id", "=", shareID},
+		},
+	}, &result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query NFS share by ID: %w", err)
+	}
+
+	if len(result) == 0 {
+		return nil, nil //nolint:nilnil // nil means "not found"
+	}
+
+	return &result[0], nil
+}
+
 // NVMe-oF API methods
 
 // ZvolCreateParams represents parameters for ZVOL creation.
@@ -1268,6 +1290,32 @@ func (c *Client) DeleteNVMeOFNamespace(ctx context.Context, namespaceID int) err
 
 	klog.V(4).Infof("Successfully deleted NVMe-oF namespace: %d", namespaceID)
 	return nil
+}
+
+// QueryNVMeOFNamespaceByID queries a single NVMe-oF namespace by its ID using server-side filtering.
+func (c *Client) QueryNVMeOFNamespaceByID(ctx context.Context, namespaceID int) (*NVMeOFNamespace, error) {
+	klog.V(4).Infof("Querying NVMe-oF namespace by ID: %d", namespaceID)
+
+	var rawResult json.RawMessage
+	err := c.Call(ctx, "nvmet.namespace.query", []interface{}{
+		[]interface{}{
+			[]interface{}{"id", "=", namespaceID},
+		},
+	}, &rawResult)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query NVMe-oF namespace by ID: %w", err)
+	}
+
+	var result []NVMeOFNamespace
+	if err := json.Unmarshal(rawResult, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal NVMe-oF namespace: %w", err)
+	}
+
+	if len(result) == 0 {
+		return nil, nil //nolint:nilnil // nil means "not found"
+	}
+
+	return &result[0], nil
 }
 
 // QueryNVMeOFSubsystem queries NVMe-oF subsystems by NQN.

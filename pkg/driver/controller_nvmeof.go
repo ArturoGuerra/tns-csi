@@ -903,23 +903,18 @@ func (s *ControllerService) deleteNVMeOFNamespace(ctx context.Context, meta *Vol
 func (s *ControllerService) verifyNamespaceDeletion(ctx context.Context, meta *VolumeMetadata) error {
 	klog.V(4).Infof("Verifying namespace %d deletion...", meta.NVMeOFNamespaceID)
 
-	allNamespaces, queryErr := s.apiClient.QueryAllNVMeOFNamespaces(ctx)
+	ns, queryErr := s.apiClient.QueryNVMeOFNamespaceByID(ctx, meta.NVMeOFNamespaceID)
 	if queryErr != nil {
 		// Query error - log but don't fail the deletion
 		klog.V(4).Infof("Could not verify namespace deletion: %v", queryErr)
 		return nil
 	}
 
-	// Check if namespace still exists
-	for _, ns := range allNamespaces {
-		if ns.ID != meta.NVMeOFNamespaceID {
-			continue
-		}
+	if ns != nil {
 		// Namespace still exists - return error to retry
 		e := status.Errorf(codes.Internal, "Namespace %d still exists after deletion (NSID: %d, device: %s)",
 			ns.ID, ns.NSID, ns.GetDevice())
 		klog.Error(e)
-		// Don't call timer.ObserveError() here - let the caller handle it
 		return e
 	}
 

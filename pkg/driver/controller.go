@@ -999,39 +999,10 @@ func (s *ControllerService) ValidateVolumeCapabilities(ctx context.Context, req 
 			volumeExists = true
 		}
 	} else {
-		// Legacy format: plain volume name, search by shares/namespaces
-		shares, err := s.apiClient.QueryAllNFSShares(ctx, volumeID)
-		if err == nil {
-			for _, share := range shares {
-				if strings.HasSuffix(share.Path, "/"+volumeID) {
-					volumeExists = true
-					break
-				}
-			}
-		}
-
-		if !volumeExists {
-			namespaces, err := s.apiClient.QueryAllNVMeOFNamespaces(ctx)
-			if err == nil {
-				for _, ns := range namespaces {
-					if strings.Contains(ns.GetDevice(), volumeID) {
-						volumeExists = true
-						break
-					}
-				}
-			}
-		}
-
-		if !volumeExists {
-			extents, err := s.apiClient.QueryISCSIExtents(ctx, nil)
-			if err == nil {
-				for _, extent := range extents {
-					if strings.Contains(extent.Disk, volumeID) {
-						volumeExists = true
-						break
-					}
-				}
-			}
+		// Legacy format: plain volume name — use property-based lookup
+		meta, err := s.lookupVolumeByCSIName(ctx, "", volumeID)
+		if err == nil && meta != nil {
+			volumeExists = true
 		}
 	}
 
@@ -1051,32 +1022,12 @@ func (s *ControllerService) ValidateVolumeCapabilities(ctx context.Context, req 
 func (s *ControllerService) ListVolumes(ctx context.Context, req *csi.ListVolumesRequest) (*csi.ListVolumesResponse, error) {
 	klog.V(4).Infof("ListVolumes called with request: %+v", req)
 
-	// Collect all CSI-managed volumes (NFS, NVMe-oF, and iSCSI)
-	var entries []*csi.ListVolumesResponse_Entry
-
-	// Query NFS volumes
-	nfsEntries, err := s.listNFSVolumes(ctx)
+	// Single API call: get all CSI-managed datasets with their ZFS properties
+	entries, err := s.listManagedVolumes(ctx)
 	if err != nil {
-		klog.Errorf("Failed to list NFS volumes: %v", err)
-		return nil, status.Errorf(codes.Internal, "failed to list NFS volumes: %v", err)
+		klog.Errorf("Failed to list managed volumes: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to list managed volumes: %v", err)
 	}
-	entries = append(entries, nfsEntries...)
-
-	// Query NVMe-oF volumes
-	nvmeofEntries, err := s.listNVMeOFVolumes(ctx)
-	if err != nil {
-		klog.Errorf("Failed to list NVMe-oF volumes: %v", err)
-		return nil, status.Errorf(codes.Internal, "failed to list NVMe-oF volumes: %v", err)
-	}
-	entries = append(entries, nvmeofEntries...)
-
-	// Query iSCSI volumes
-	iscsiEntries, err := s.listISCSIVolumes(ctx)
-	if err != nil {
-		klog.Errorf("Failed to list iSCSI volumes: %v", err)
-		return nil, status.Errorf(codes.Internal, "failed to list iSCSI volumes: %v", err)
-	}
-	entries = append(entries, iscsiEntries...)
 
 	// Handle pagination
 	maxEntries := int(req.GetMaxEntries())
@@ -1122,143 +1073,48 @@ func (s *ControllerService) ListVolumes(ctx context.Context, req *csi.ListVolume
 	}, nil
 }
 
-// listNFSVolumes lists all NFS CSI volumes.
-func (s *ControllerService) listNFSVolumes(ctx context.Context) ([]*csi.ListVolumesResponse_Entry, error) {
-	klog.V(5).Info("Listing NFS volumes")
+// listManagedVolumes lists all CSI-managed volumes using a single FindManagedDatasets call.
+// ZFS properties store all metadata needed to build ListVolumes entries, so no need
+// to query shares/namespaces/extents separately.
+func (s *ControllerService) listManagedVolumes(ctx context.Context) ([]*csi.ListVolumesResponse_Entry, error) {
+	klog.V(5).Info("Listing all managed volumes via FindManagedDatasets")
 
-	// Query all NFS shares - they indicate CSI-managed NFS volumes
-	shares, err := s.apiClient.QueryAllNFSShares(ctx, "")
+	datasets, err := s.apiClient.FindManagedDatasets(ctx, "")
 	if err != nil {
-		return nil, fmt.Errorf("failed to query NFS shares: %w", err)
-	}
-
-	// Query all datasets to match with shares
-	allDatasets, err := s.apiClient.QueryAllDatasets(ctx, "")
-	if err != nil {
-		return nil, fmt.Errorf("failed to query datasets: %w", err)
-	}
-
-	// Build a map of mountpoint -> dataset for quick lookup
-	datasetsByMountpoint := make(map[string]tnsapi.Dataset)
-	for _, ds := range allDatasets {
-		if ds.Mountpoint != "" {
-			datasetsByMountpoint[ds.Mountpoint] = ds
-		}
+		return nil, fmt.Errorf("failed to find managed datasets: %w", err)
 	}
 
 	var entries []*csi.ListVolumesResponse_Entry
-	for _, share := range shares {
-		// Find the dataset that matches this share's path (mountpoint)
-		dataset, found := datasetsByMountpoint[share.Path]
-		if !found {
-			klog.V(5).Infof("Skipping NFS share with no matching dataset mountpoint: %s", share.Path)
+	for i := range datasets {
+		ds := &datasets[i]
+
+		// Skip detached snapshots — they are not volumes
+		if ds.UserProperties != nil {
+			if detached, ok := ds.UserProperties[tnsapi.PropertyDetachedSnapshot]; ok && detached.Value == "true" {
+				continue
+			}
+			if _, ok := ds.UserProperties[tnsapi.PropertySnapshotID]; ok {
+				continue
+			}
+		}
+
+		meta, err := extractVolumeMetadata(ds.ID, ds)
+		if err != nil {
+			klog.Warningf("Skipping dataset %s: failed to extract metadata: %v", ds.ID, err)
+			continue
+		}
+		if meta == nil {
+			// Not managed by tns-csi or missing properties
 			continue
 		}
 
-		// Build volume metadata
-		meta := VolumeMetadata{
-			Name:        dataset.Name,
-			Protocol:    ProtocolNFS,
-			DatasetID:   dataset.ID,
-			DatasetName: dataset.Name,
-			NFSShareID:  share.ID,
-		}
-
-		entry := s.buildVolumeEntry(dataset, meta)
+		entry := s.buildVolumeEntry(ds.Dataset, *meta)
 		if entry != nil {
 			entries = append(entries, entry)
 		}
 	}
 
-	klog.V(5).Infof("Found %d NFS volumes", len(entries))
-	return entries, nil
-}
-
-// listNVMeOFVolumes lists all NVMe-oF CSI volumes.
-func (s *ControllerService) listNVMeOFVolumes(ctx context.Context) ([]*csi.ListVolumesResponse_Entry, error) {
-	klog.V(5).Info("Listing NVMe-oF volumes")
-
-	// Query all NVMe-oF namespaces - they indicate CSI-managed NVMe-oF volumes
-	namespaces, err := s.apiClient.QueryAllNVMeOFNamespaces(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query NVMe-oF namespaces: %w", err)
-	}
-
-	var entries []*csi.ListVolumesResponse_Entry
-	for _, ns := range namespaces {
-		// Each namespace corresponds to a ZVOL
-		// The device path usually points to the ZVOL
-		devicePath := ns.GetDevice()
-		datasets, err := s.apiClient.QueryAllDatasets(ctx, devicePath)
-		if err != nil || len(datasets) == 0 {
-			klog.V(5).Infof("Skipping NVMe-oF namespace with no matching ZVOL: %s", devicePath)
-			continue
-		}
-
-		zvol := datasets[0]
-
-		// Build volume metadata
-		meta := VolumeMetadata{
-			Name:              zvol.Name,
-			Protocol:          ProtocolNVMeOF,
-			DatasetID:         zvol.ID,
-			DatasetName:       zvol.Name,
-			NVMeOFNamespaceID: ns.ID,
-		}
-
-		entry := s.buildVolumeEntry(zvol, meta)
-		if entry != nil {
-			entries = append(entries, entry)
-		}
-	}
-
-	klog.V(5).Infof("Found %d NVMe-oF volumes", len(entries))
-	return entries, nil
-}
-
-// listISCSIVolumes lists all iSCSI CSI volumes.
-func (s *ControllerService) listISCSIVolumes(ctx context.Context) ([]*csi.ListVolumesResponse_Entry, error) {
-	klog.V(5).Info("Listing iSCSI volumes")
-
-	// Query all iSCSI extents - they indicate CSI-managed iSCSI volumes
-	extents, err := s.apiClient.QueryISCSIExtents(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query iSCSI extents: %w", err)
-	}
-
-	var entries []*csi.ListVolumesResponse_Entry
-	for _, extent := range extents {
-		// Each extent's Disk field has format "zvol/<dataset_path>"
-		if !strings.HasPrefix(extent.Disk, "zvol/") {
-			klog.V(5).Infof("Skipping iSCSI extent %d with non-ZVOL disk: %s", extent.ID, extent.Disk)
-			continue
-		}
-
-		datasetPath := strings.TrimPrefix(extent.Disk, "zvol/")
-		datasets, err := s.apiClient.QueryAllDatasets(ctx, datasetPath)
-		if err != nil || len(datasets) == 0 {
-			klog.V(5).Infof("Skipping iSCSI extent %d with no matching ZVOL: %s", extent.ID, datasetPath)
-			continue
-		}
-
-		zvol := datasets[0]
-
-		// Build volume metadata
-		meta := VolumeMetadata{
-			Name:          zvol.Name,
-			Protocol:      ProtocolISCSI,
-			DatasetID:     zvol.ID,
-			DatasetName:   zvol.Name,
-			ISCSIExtentID: extent.ID,
-		}
-
-		entry := s.buildVolumeEntry(zvol, meta)
-		if entry != nil {
-			entries = append(entries, entry)
-		}
-	}
-
-	klog.V(5).Infof("Found %d iSCSI volumes", len(entries))
+	klog.V(5).Infof("Found %d managed volumes", len(entries))
 	return entries, nil
 }
 
@@ -1766,19 +1622,11 @@ func (s *ControllerService) getNFSVolumeInfo(ctx context.Context, meta *VolumeMe
 
 	// Check 2: Verify NFS share exists and is enabled
 	if meta.NFSShareID > 0 {
-		shares, err := s.apiClient.QueryAllNFSShares(ctx, "")
+		foundShare, err := s.apiClient.QueryNFSShareByID(ctx, meta.NFSShareID)
 		if err != nil {
 			abnormal = true
-			messages = append(messages, fmt.Sprintf("Failed to query NFS shares: %v", err))
+			messages = append(messages, fmt.Sprintf("Failed to query NFS share %d: %v", meta.NFSShareID, err))
 		} else {
-			// Find the share by ID
-			var foundShare *tnsapi.NFSShare
-			for i := range shares {
-				if shares[i].ID == meta.NFSShareID {
-					foundShare = &shares[i]
-					break
-				}
-			}
 			switch {
 			case foundShare == nil:
 				abnormal = true
@@ -1848,54 +1696,53 @@ func (s *ControllerService) getNVMeOFVolumeInfo(ctx context.Context, meta *Volum
 		klog.V(4).Infof("ZVOL %s exists (ID: %s)", meta.DatasetName, datasets[0].ID)
 	}
 
-	// Check 2: Verify NVMe-oF subsystem exists
+	// Check 2: Verify NVMe-oF subsystem exists (use NQN-based lookup if available)
 	var subsystemHealthy bool
-	if meta.NVMeOFSubsystemID > 0 {
+	if meta.NVMeOFNQN != "" {
+		foundSubsystem, err := s.apiClient.NVMeOFSubsystemByNQN(ctx, meta.NVMeOFNQN)
+		if err != nil {
+			abnormal = true
+			messages = append(messages, fmt.Sprintf("NVMe-oF subsystem not found for NQN %s: %v", meta.NVMeOFNQN, err))
+		} else {
+			subsystemHealthy = true
+			klog.V(4).Infof("NVMe-oF subsystem %d is healthy (NQN: %s)", foundSubsystem.ID, foundSubsystem.NQN)
+		}
+	} else if meta.NVMeOFSubsystemID > 0 {
+		// Fallback: no NQN stored, list all subsystems to find by ID
 		subsystems, err := s.apiClient.ListAllNVMeOFSubsystems(ctx)
 		if err != nil {
 			abnormal = true
 			messages = append(messages, fmt.Sprintf("Failed to query NVMe-oF subsystems: %v", err))
 		} else {
-			// Find the subsystem by ID
-			var foundSubsystem *tnsapi.NVMeOFSubsystem
+			var found bool
 			for i := range subsystems {
 				if subsystems[i].ID == meta.NVMeOFSubsystemID {
-					foundSubsystem = &subsystems[i]
+					found = true
+					subsystemHealthy = true
+					klog.V(4).Infof("NVMe-oF subsystem %d is healthy (NQN: %s)", subsystems[i].ID, subsystems[i].NQN)
 					break
 				}
 			}
-			if foundSubsystem == nil {
+			if !found {
 				abnormal = true
 				messages = append(messages, fmt.Sprintf("NVMe-oF subsystem %d not found", meta.NVMeOFSubsystemID))
-			} else {
-				subsystemHealthy = true
-				klog.V(4).Infof("NVMe-oF subsystem %d is healthy (NQN: %s)", foundSubsystem.ID, foundSubsystem.NQN)
 			}
 		}
 	}
 
-	// Check 3: Verify NVMe-oF namespace exists
+	// Check 3: Verify NVMe-oF namespace exists (O(1) server-side filter)
 	if meta.NVMeOFNamespaceID > 0 && subsystemHealthy {
-		namespaces, err := s.apiClient.QueryAllNVMeOFNamespaces(ctx)
-		if err != nil {
+		foundNamespace, err := s.apiClient.QueryNVMeOFNamespaceByID(ctx, meta.NVMeOFNamespaceID)
+		switch {
+		case err != nil:
 			abnormal = true
-			messages = append(messages, fmt.Sprintf("Failed to query NVMe-oF namespaces: %v", err))
-		} else {
-			// Find the namespace by ID
-			var foundNamespace *tnsapi.NVMeOFNamespace
-			for i := range namespaces {
-				if namespaces[i].ID == meta.NVMeOFNamespaceID {
-					foundNamespace = &namespaces[i]
-					break
-				}
-			}
-			if foundNamespace == nil {
-				abnormal = true
-				messages = append(messages, fmt.Sprintf("NVMe-oF namespace %d not found", meta.NVMeOFNamespaceID))
-			} else {
-				klog.V(4).Infof("NVMe-oF namespace %d is healthy (NSID: %d, device: %s)",
-					foundNamespace.ID, foundNamespace.NSID, foundNamespace.GetDevice())
-			}
+			messages = append(messages, fmt.Sprintf("Failed to query NVMe-oF namespace %d: %v", meta.NVMeOFNamespaceID, err))
+		case foundNamespace == nil:
+			abnormal = true
+			messages = append(messages, fmt.Sprintf("NVMe-oF namespace %d not found", meta.NVMeOFNamespaceID))
+		default:
+			klog.V(4).Infof("NVMe-oF namespace %d is healthy (NSID: %d, device: %s)",
+				foundNamespace.ID, foundNamespace.NSID, foundNamespace.GetDevice())
 		}
 	}
 

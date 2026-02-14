@@ -37,9 +37,12 @@ type MockAPIClientForSnapshots struct {
 	AddSubsystemToPortFunc         func(ctx context.Context, subsystemID, portID int) error
 	NVMeOFSubsystemByNQNFunc       func(ctx context.Context, nqn string) (*tnsapi.NVMeOFSubsystem, error)
 	QueryAllDatasetsFunc           func(ctx context.Context, prefix string) ([]tnsapi.Dataset, error)
+	QueryNFSShareByIDFunc          func(ctx context.Context, shareID int) (*tnsapi.NFSShare, error)
 	QueryAllNFSSharesFunc          func(ctx context.Context, pathPrefix string) ([]tnsapi.NFSShare, error)
+	QueryNVMeOFNamespaceByIDFunc   func(ctx context.Context, namespaceID int) (*tnsapi.NVMeOFNamespace, error)
 	QueryAllNVMeOFNamespacesFunc   func(ctx context.Context) ([]tnsapi.NVMeOFNamespace, error)
 	QueryPoolFunc                  func(ctx context.Context, poolName string) (*tnsapi.Pool, error)
+	FindManagedDatasetsFunc        func(ctx context.Context, prefix string) ([]tnsapi.DatasetWithProperties, error)
 	FindDatasetByCSIVolumeNameFunc func(ctx context.Context, poolDatasetPrefix, volumeName string) (*tnsapi.DatasetWithProperties, error)
 	FindDatasetsByPropertyFunc     func(ctx context.Context, poolDatasetPrefix, propertyName, propertyValue string) ([]tnsapi.DatasetWithProperties, error)
 	GetDatasetWithPropertiesFunc   func(ctx context.Context, datasetID string) (*tnsapi.DatasetWithProperties, error)
@@ -213,11 +216,25 @@ func (m *MockAPIClientForSnapshots) QueryAllDatasets(ctx context.Context, prefix
 	return nil, errors.New("QueryAllDatasetsFunc not implemented")
 }
 
+func (m *MockAPIClientForSnapshots) QueryNFSShareByID(ctx context.Context, shareID int) (*tnsapi.NFSShare, error) {
+	if m.QueryNFSShareByIDFunc != nil {
+		return m.QueryNFSShareByIDFunc(ctx, shareID)
+	}
+	return nil, nil //nolint:nilnil // Default: not found
+}
+
 func (m *MockAPIClientForSnapshots) QueryAllNFSShares(ctx context.Context, pathPrefix string) ([]tnsapi.NFSShare, error) {
 	if m.QueryAllNFSSharesFunc != nil {
 		return m.QueryAllNFSSharesFunc(ctx, pathPrefix)
 	}
 	return nil, errors.New("QueryAllNFSSharesFunc not implemented")
+}
+
+func (m *MockAPIClientForSnapshots) QueryNVMeOFNamespaceByID(ctx context.Context, namespaceID int) (*tnsapi.NVMeOFNamespace, error) {
+	if m.QueryNVMeOFNamespaceByIDFunc != nil {
+		return m.QueryNVMeOFNamespaceByIDFunc(ctx, namespaceID)
+	}
+	return nil, nil //nolint:nilnil // Default: not found
 }
 
 func (m *MockAPIClientForSnapshots) QueryAllNVMeOFNamespaces(ctx context.Context) ([]tnsapi.NVMeOFNamespace, error) {
@@ -315,7 +332,9 @@ func (m *MockAPIClientForSnapshots) FindDatasetsByProperty(ctx context.Context, 
 }
 
 func (m *MockAPIClientForSnapshots) FindManagedDatasets(ctx context.Context, prefix string) ([]tnsapi.DatasetWithProperties, error) {
-	// Mock implementation - return empty slice
+	if m.FindManagedDatasetsFunc != nil {
+		return m.FindManagedDatasetsFunc(ctx, prefix)
+	}
 	return nil, nil
 }
 

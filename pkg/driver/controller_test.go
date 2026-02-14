@@ -182,8 +182,16 @@ func (m *mockAPIClient) QueryAllDatasets(ctx context.Context, prefix string) ([]
 	return nil, nil
 }
 
+func (m *mockAPIClient) QueryNFSShareByID(_ context.Context, _ int) (*tnsapi.NFSShare, error) {
+	return nil, nil //nolint:nilnil // Stub - not found
+}
+
 func (m *mockAPIClient) QueryAllNFSShares(ctx context.Context, pathPrefix string) ([]tnsapi.NFSShare, error) {
 	return nil, nil
+}
+
+func (m *mockAPIClient) QueryNVMeOFNamespaceByID(_ context.Context, _ int) (*tnsapi.NVMeOFNamespace, error) {
+	return nil, nil //nolint:nilnil // Stub - not found
 }
 
 func (m *mockAPIClient) QueryAllNVMeOFNamespaces(ctx context.Context) ([]tnsapi.NVMeOFNamespace, error) {
@@ -795,14 +803,21 @@ func TestValidateVolumeCapabilities(t *testing.T) {
 				},
 			},
 			mockSetup: func(m *MockAPIClientForSnapshots) {
-				// Mock finding the NFS share
-				m.QueryAllNFSSharesFunc = func(ctx context.Context, pathPrefix string) ([]tnsapi.NFSShare, error) {
-					return []tnsapi.NFSShare{
-						{
-							ID:   1,
-							Path: "/mnt/tank/" + volumeID,
-						},
-					}, nil
+				// Mock property-based lookup (legacy plain name)
+				m.FindDatasetByCSIVolumeNameFunc = func(ctx context.Context, prefix, volumeName string) (*tnsapi.DatasetWithProperties, error) {
+					if volumeName == volumeID {
+						return &tnsapi.DatasetWithProperties{
+							Dataset: tnsapi.Dataset{
+								ID:   "tank/csi/" + volumeID,
+								Name: "tank/csi/" + volumeID,
+							},
+							UserProperties: map[string]tnsapi.UserProperty{
+								tnsapi.PropertyManagedBy: {Value: tnsapi.ManagedByValue},
+								tnsapi.PropertyProtocol:  {Value: tnsapi.ProtocolNFS},
+							},
+						}, nil
+					}
+					return nil, nil //nolint:nilnil // not found
 				}
 			},
 			wantErr: false,
@@ -820,12 +835,9 @@ func TestValidateVolumeCapabilities(t *testing.T) {
 				},
 			},
 			mockSetup: func(m *MockAPIClientForSnapshots) {
-				// Mock returning empty results - volume not found
-				m.QueryAllNFSSharesFunc = func(ctx context.Context, pathPrefix string) ([]tnsapi.NFSShare, error) {
-					return []tnsapi.NFSShare{}, nil
-				}
-				m.QueryAllNVMeOFNamespacesFunc = func(ctx context.Context) ([]tnsapi.NVMeOFNamespace, error) {
-					return []tnsapi.NVMeOFNamespace{}, nil
+				// Mock property-based lookup returning not found
+				m.FindDatasetByCSIVolumeNameFunc = func(ctx context.Context, prefix, volumeName string) (*tnsapi.DatasetWithProperties, error) {
+					return nil, nil //nolint:nilnil // not found
 				}
 			},
 			wantErr:  true,
@@ -1654,14 +1666,8 @@ func TestListVolumes(t *testing.T) {
 			name: "list volumes - empty",
 			req:  &csi.ListVolumesRequest{},
 			mockSetup: func(m *MockAPIClientForSnapshots) {
-				m.QueryAllDatasetsFunc = func(ctx context.Context, prefix string) ([]tnsapi.Dataset, error) {
-					return []tnsapi.Dataset{}, nil
-				}
-				m.QueryAllNFSSharesFunc = func(ctx context.Context, pathPrefix string) ([]tnsapi.NFSShare, error) {
-					return []tnsapi.NFSShare{}, nil
-				}
-				m.QueryAllNVMeOFNamespacesFunc = func(ctx context.Context) ([]tnsapi.NVMeOFNamespace, error) {
-					return []tnsapi.NVMeOFNamespace{}, nil
+				m.FindManagedDatasetsFunc = func(ctx context.Context, prefix string) ([]tnsapi.DatasetWithProperties, error) {
+					return []tnsapi.DatasetWithProperties{}, nil
 				}
 			},
 			wantErr: false,
@@ -1679,14 +1685,8 @@ func TestListVolumes(t *testing.T) {
 				MaxEntries:    5,
 			},
 			mockSetup: func(m *MockAPIClientForSnapshots) {
-				m.QueryAllDatasetsFunc = func(ctx context.Context, prefix string) ([]tnsapi.Dataset, error) {
-					return []tnsapi.Dataset{}, nil
-				}
-				m.QueryAllNFSSharesFunc = func(ctx context.Context, pathPrefix string) ([]tnsapi.NFSShare, error) {
-					return []tnsapi.NFSShare{}, nil
-				}
-				m.QueryAllNVMeOFNamespacesFunc = func(ctx context.Context) ([]tnsapi.NVMeOFNamespace, error) {
-					return []tnsapi.NVMeOFNamespace{}, nil
+				m.FindManagedDatasetsFunc = func(ctx context.Context, prefix string) ([]tnsapi.DatasetWithProperties, error) {
+					return []tnsapi.DatasetWithProperties{}, nil
 				}
 			},
 			wantErr:  true, // Token not found in volume list
@@ -1694,11 +1694,9 @@ func TestListVolumes(t *testing.T) {
 		},
 		{
 			name: "list volumes - API failure",
-			req: &csi.ListVolumesRequest{
-				StartingToken: "some-token",
-			},
+			req:  &csi.ListVolumesRequest{},
 			mockSetup: func(m *MockAPIClientForSnapshots) {
-				m.QueryAllNFSSharesFunc = func(ctx context.Context, pathPrefix string) ([]tnsapi.NFSShare, error) {
+				m.FindManagedDatasetsFunc = func(ctx context.Context, prefix string) ([]tnsapi.DatasetWithProperties, error) {
 					return nil, errors.New("API error")
 				}
 			},
@@ -1804,15 +1802,16 @@ func TestControllerGetVolume(t *testing.T) {
 					}
 					return nil, nil //nolint:nilnil // intentional: volume not found
 				}
-				// Mock NFS shares for health check
-				m.QueryAllNFSSharesFunc = func(ctx context.Context, pathPrefix string) ([]tnsapi.NFSShare, error) {
-					return []tnsapi.NFSShare{
-						{
+				// Mock NFS share lookup by ID for health check
+				m.QueryNFSShareByIDFunc = func(ctx context.Context, shareID int) (*tnsapi.NFSShare, error) {
+					if shareID == 42 {
+						return &tnsapi.NFSShare{
 							ID:      42,
 							Path:    "/mnt/tank/csi/" + nfsVolumeID,
 							Enabled: true,
-						},
-					}, nil
+						}, nil
+					}
+					return nil, nil //nolint:nilnil // not found
 				}
 				// Mock Dataset() for getNFSVolumeInfo health check
 				m.GetDatasetFunc = func(ctx context.Context, datasetID string) (*tnsapi.Dataset, error) {
@@ -1870,15 +1869,16 @@ func TestControllerGetVolume(t *testing.T) {
 					}
 					return nil, nil //nolint:nilnil // intentional: volume not found
 				}
-				// Mock NFS shares for health check
-				m.QueryAllNFSSharesFunc = func(ctx context.Context, pathPrefix string) ([]tnsapi.NFSShare, error) {
-					return []tnsapi.NFSShare{
-						{
+				// Mock NFS share lookup by ID for health check
+				m.QueryNFSShareByIDFunc = func(ctx context.Context, shareID int) (*tnsapi.NFSShare, error) {
+					if shareID == 42 {
+						return &tnsapi.NFSShare{
 							ID:      42,
 							Path:    "/mnt/tank/csi/" + nfsVolumeID,
 							Enabled: true,
-						},
-					}, nil
+						}, nil
+					}
+					return nil, nil //nolint:nilnil // not found
 				}
 				// Mock Dataset() for getNFSVolumeInfo health check - returns error to simulate missing dataset
 				m.GetDatasetFunc = func(ctx context.Context, datasetID string) (*tnsapi.Dataset, error) {
@@ -1923,15 +1923,16 @@ func TestControllerGetVolume(t *testing.T) {
 					}
 					return nil, nil //nolint:nilnil // intentional: volume not found
 				}
-				// Mock finding the NFS share (disabled)
-				m.QueryAllNFSSharesFunc = func(ctx context.Context, pathPrefix string) ([]tnsapi.NFSShare, error) {
-					return []tnsapi.NFSShare{
-						{
+				// Mock NFS share lookup by ID (disabled)
+				m.QueryNFSShareByIDFunc = func(ctx context.Context, shareID int) (*tnsapi.NFSShare, error) {
+					if shareID == 42 {
+						return &tnsapi.NFSShare{
 							ID:      42,
 							Path:    "/mnt/tank/csi/" + nfsVolumeID,
 							Enabled: false, // Share is disabled
-						},
-					}, nil
+						}, nil
+					}
+					return nil, nil //nolint:nilnil // not found
 				}
 				// Mock Dataset() for getNFSVolumeInfo health check
 				m.GetDatasetFunc = func(ctx context.Context, datasetID string) (*tnsapi.Dataset, error) {
@@ -1983,24 +1984,27 @@ func TestControllerGetVolume(t *testing.T) {
 					}
 					return nil, nil //nolint:nilnil // intentional: volume not found
 				}
-				// Mock finding the NVMe-oF namespace for health check
-				m.QueryAllNVMeOFNamespacesFunc = func(ctx context.Context) ([]tnsapi.NVMeOFNamespace, error) {
-					return []tnsapi.NVMeOFNamespace{
-						{
+				// Mock subsystem lookup by NQN for health check
+				m.NVMeOFSubsystemByNQNFunc = func(ctx context.Context, nqn string) (*tnsapi.NVMeOFSubsystem, error) {
+					if nqn == "nqn.2005-03.org.truenas:"+nvmeofVolumeID {
+						return &tnsapi.NVMeOFSubsystem{
+							ID:   100,
+							Name: nqn,
+							NQN:  nqn,
+						}, nil
+					}
+					return nil, errors.New("subsystem not found")
+				}
+				// Mock namespace lookup by ID for health check
+				m.QueryNVMeOFNamespaceByIDFunc = func(ctx context.Context, namespaceID int) (*tnsapi.NVMeOFNamespace, error) {
+					if namespaceID == 200 {
+						return &tnsapi.NVMeOFNamespace{
 							ID:     200,
 							Subsys: &tnsapi.NVMeOFNamespaceSubsystem{ID: 100, Name: "nqn.2005-03.org.truenas:" + nvmeofVolumeID},
 							Device: "/dev/zvol/tank/csi/" + nvmeofVolumeID,
-						},
-					}, nil
-				}
-				// Mock finding the subsystem for health check
-				m.ListAllNVMeOFSubsystemsFunc = func(ctx context.Context) ([]tnsapi.NVMeOFSubsystem, error) {
-					return []tnsapi.NVMeOFSubsystem{
-						{
-							ID:  100,
-							NQN: "nqn.2005-03.org.truenas:" + nvmeofVolumeID,
-						},
-					}, nil
+						}, nil
+					}
+					return nil, nil //nolint:nilnil // not found
 				}
 				// Mock ZVOL exists for health check
 				m.QueryAllDatasetsFunc = func(ctx context.Context, prefix string) ([]tnsapi.Dataset, error) {
@@ -2061,24 +2065,20 @@ func TestControllerGetVolume(t *testing.T) {
 					}
 					return nil, nil //nolint:nilnil // intentional: volume not found
 				}
-				// Mock finding the NVMe-oF namespace for health check
-				m.QueryAllNVMeOFNamespacesFunc = func(ctx context.Context) ([]tnsapi.NVMeOFNamespace, error) {
-					return []tnsapi.NVMeOFNamespace{
-						{
-							ID:     200,
-							Subsys: &tnsapi.NVMeOFNamespaceSubsystem{ID: 100, Name: "nqn.2005-03.org.truenas:" + nvmeofVolumeID},
-							Device: "/dev/zvol/tank/csi/" + nvmeofVolumeID,
-						},
-					}, nil
+				// Mock subsystem lookup by NQN for health check
+				m.NVMeOFSubsystemByNQNFunc = func(ctx context.Context, nqn string) (*tnsapi.NVMeOFSubsystem, error) {
+					return &tnsapi.NVMeOFSubsystem{ID: 100, Name: nqn, NQN: nqn}, nil
 				}
-				// Mock finding the subsystem for health check
-				m.ListAllNVMeOFSubsystemsFunc = func(ctx context.Context) ([]tnsapi.NVMeOFSubsystem, error) {
-					return []tnsapi.NVMeOFSubsystem{
-						{
-							ID:  100,
-							NQN: "nqn.2005-03.org.truenas:" + nvmeofVolumeID,
-						},
-					}, nil
+				// Mock namespace lookup by ID for health check
+				m.QueryNVMeOFNamespaceByIDFunc = func(ctx context.Context, namespaceID int) (*tnsapi.NVMeOFNamespace, error) {
+					if namespaceID == 200 {
+						return &tnsapi.NVMeOFNamespace{
+							ID:     200,
+							Subsys: &tnsapi.NVMeOFNamespaceSubsystem{ID: 100},
+							Device: "/dev/zvol/tank/csi/" + nvmeofVolumeID,
+						}, nil
+					}
+					return nil, nil //nolint:nilnil // not found
 				}
 				// Mock ZVOL not found
 				m.QueryAllDatasetsFunc = func(ctx context.Context, prefix string) ([]tnsapi.Dataset, error) {
@@ -2125,19 +2125,9 @@ func TestControllerGetVolume(t *testing.T) {
 					}
 					return nil, nil //nolint:nilnil // intentional: volume not found
 				}
-				// Mock finding the NVMe-oF namespace for health check
-				m.QueryAllNVMeOFNamespacesFunc = func(ctx context.Context) ([]tnsapi.NVMeOFNamespace, error) {
-					return []tnsapi.NVMeOFNamespace{
-						{
-							ID:     200,
-							Subsys: &tnsapi.NVMeOFNamespaceSubsystem{ID: 100, Name: "nqn.2005-03.org.truenas:" + nvmeofVolumeID},
-							Device: "/dev/zvol/tank/csi/" + nvmeofVolumeID,
-						},
-					}, nil
-				}
-				// Mock subsystem not found (empty list)
-				m.ListAllNVMeOFSubsystemsFunc = func(ctx context.Context) ([]tnsapi.NVMeOFSubsystem, error) {
-					return []tnsapi.NVMeOFSubsystem{}, nil // Empty - no subsystems
+				// Mock subsystem not found by NQN
+				m.NVMeOFSubsystemByNQNFunc = func(ctx context.Context, nqn string) (*tnsapi.NVMeOFSubsystem, error) {
+					return nil, errors.New("subsystem not found")
 				}
 				// Mock ZVOL exists
 				m.QueryAllDatasetsFunc = func(ctx context.Context, prefix string) ([]tnsapi.Dataset, error) {
@@ -2190,24 +2180,20 @@ func TestControllerGetVolume(t *testing.T) {
 					}
 					return nil, nil //nolint:nilnil // intentional: volume not found
 				}
-				// Mock finding the NVMe-oF namespace with proper subsystem info
-				m.QueryAllNVMeOFNamespacesFunc = func(ctx context.Context) ([]tnsapi.NVMeOFNamespace, error) {
-					return []tnsapi.NVMeOFNamespace{
-						{
+				// Mock subsystem lookup by NQN (found)
+				m.NVMeOFSubsystemByNQNFunc = func(ctx context.Context, nqn string) (*tnsapi.NVMeOFSubsystem, error) {
+					return &tnsapi.NVMeOFSubsystem{ID: 100, Name: nqn, NQN: nqn}, nil
+				}
+				// Mock namespace lookup by ID (found, so volume is healthy)
+				m.QueryNVMeOFNamespaceByIDFunc = func(ctx context.Context, namespaceID int) (*tnsapi.NVMeOFNamespace, error) {
+					if namespaceID == 200 {
+						return &tnsapi.NVMeOFNamespace{
 							ID:     200,
 							Subsys: &tnsapi.NVMeOFNamespaceSubsystem{ID: 100, Name: "nqn.2005-03.org.truenas:" + nvmeofVolumeID},
 							Device: "/dev/zvol/tank/csi/" + nvmeofVolumeID,
-						},
-					}, nil
-				}
-				// Mock finding the subsystem
-				m.ListAllNVMeOFSubsystemsFunc = func(ctx context.Context) ([]tnsapi.NVMeOFSubsystem, error) {
-					return []tnsapi.NVMeOFSubsystem{
-						{
-							ID:  100,
-							NQN: "nqn.2005-03.org.truenas:" + nvmeofVolumeID,
-						},
-					}, nil
+						}, nil
+					}
+					return nil, nil //nolint:nilnil // not found
 				}
 				// Mock ZVOL exists
 				m.QueryAllDatasetsFunc = func(ctx context.Context, prefix string) ([]tnsapi.Dataset, error) {
