@@ -923,6 +923,8 @@ type DatasetCreateParams struct {
 	Acltype string `json:"acltype,omitempty"`
 	// Case sensitivity: sensitive, insensitive, mixed (only at creation, cannot be changed)
 	Casesensitivity string `json:"casesensitivity,omitempty"`
+	// Comments is a free-form text field visible in TrueNAS UI (set via commentTemplate StorageClass parameter)
+	Comments string `json:"comments,omitempty"`
 }
 
 // Dataset represents a ZFS dataset.
@@ -1139,6 +1141,8 @@ type ZvolCreateParams struct {
 	Readonly string `json:"readonly,omitempty"`
 	// Sparse ZVOL (thin provisioning): true allocates space on demand
 	Sparse *bool `json:"sparse,omitempty"`
+	// Comments is a free-form text field visible in TrueNAS UI (set via commentTemplate StorageClass parameter)
+	Comments string `json:"comments,omitempty"`
 }
 
 // CreateZvol creates a new ZVOL (block device).

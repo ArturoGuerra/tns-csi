@@ -51,6 +51,8 @@ type nfsVolumeParams struct {
 	zfsProps *zfsDatasetProperties
 	// Encryption settings parsed from StorageClass and secrets
 	encryption *encryptionConfig
+	// comment is the resolved dataset comment from commentTemplate (free-form text for TrueNAS UI)
+	comment string
 	// Adoption metadata from CSI parameters
 	pvcName      string
 	pvcNamespace string
@@ -219,6 +221,12 @@ func validateNFSParams(req *csi.CreateVolumeRequest) (*nfsVolumeParams, error) {
 	}
 	datasetName := fmt.Sprintf("%s/%s", parentDataset, volumeName)
 
+	// Resolve dataset comment from commentTemplate (if configured in StorageClass)
+	comment, err := ResolveComment(params, req.GetName())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "failed to resolve comment template: %v", err)
+	}
+
 	// Parse ZFS properties from StorageClass parameters
 	zfsProps := parseZFSDatasetProperties(params)
 
@@ -250,6 +258,7 @@ func validateNFSParams(req *csi.CreateVolumeRequest) (*nfsVolumeParams, error) {
 		markAdoptable:     markAdoptable,
 		zfsProps:          zfsProps,
 		encryption:        encryption,
+		comment:           comment,
 		pvcName:           pvcName,
 		pvcNamespace:      pvcNamespace,
 		storageClass:      storageClass,
@@ -359,6 +368,7 @@ func (s *ControllerService) getOrCreateDataset(ctx context.Context, params *nfsV
 		Name:     params.datasetName,
 		Type:     "FILESYSTEM",
 		RefQuota: &params.requestedCapacity, // Set quota at creation for consistency with expansion
+		Comments: params.comment,
 	}
 
 	// Apply ZFS properties if specified in StorageClass
@@ -722,6 +732,13 @@ func (s *ControllerService) setupNFSVolumeFromClone(ctx context.Context, req *cs
 		klog.Warningf("Failed to set ZFS user properties on cloned dataset %s: %v (volume will still work)", dataset.ID, err)
 	} else {
 		klog.V(4).Infof("Stored ZFS user properties on cloned dataset %s: %v", dataset.ID, props)
+	}
+
+	// Set dataset comment from commentTemplate (if configured) — CloneSnapshot doesn't support setting comments
+	if comment, commentErr := ResolveComment(req.GetParameters(), req.GetName()); commentErr == nil && comment != "" {
+		if _, err := s.apiClient.UpdateDataset(ctx, dataset.ID, tnsapi.DatasetUpdateParams{Comments: comment}); err != nil {
+			klog.Warningf("Failed to set comment on cloned dataset %s: %v (non-fatal)", dataset.ID, err)
+		}
 	}
 
 	// Build volume metadata

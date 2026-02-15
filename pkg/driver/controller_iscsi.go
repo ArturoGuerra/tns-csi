@@ -41,6 +41,8 @@ type iscsiVolumeParams struct {
 	zfsProps *zfsZvolProperties
 	// Encryption settings parsed from StorageClass and secrets
 	encryption *encryptionConfig
+	// comment is the resolved dataset comment from commentTemplate (free-form text for TrueNAS UI)
+	comment string
 	// Adoption metadata from CSI parameters
 	pvcName      string
 	pvcNamespace string
@@ -99,6 +101,12 @@ func validateISCSIParams(req *csi.CreateVolumeRequest) (*iscsiVolumeParams, erro
 	}
 	zvolName := parentDataset + "/" + volumeName
 
+	// Resolve dataset comment from commentTemplate (if configured in StorageClass)
+	comment, err := ResolveComment(params, req.GetName())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "failed to resolve comment template: %v", err)
+	}
+
 	// Get delete strategy (default: delete)
 	deleteStrategy := params["deleteStrategy"]
 	if deleteStrategy == "" {
@@ -143,6 +151,7 @@ func validateISCSIParams(req *csi.CreateVolumeRequest) (*iscsiVolumeParams, erro
 		markAdoptable:     markAdoptable,
 		zfsProps:          zfsProps,
 		encryption:        encryptionConf,
+		comment:           comment,
 		pvcName:           pvcName,
 		pvcNamespace:      pvcNamespace,
 		storageClass:      storageClass,
@@ -375,9 +384,10 @@ func (s *ControllerService) getOrCreateZVOLForISCSI(ctx context.Context, params 
 
 	// Build ZVOL create parameters
 	createParams := tnsapi.ZvolCreateParams{
-		Name:    params.zvolName,
-		Volsize: params.requestedCapacity,
-		Type:    "VOLUME",
+		Name:     params.zvolName,
+		Volsize:  params.requestedCapacity,
+		Type:     "VOLUME",
+		Comments: params.comment,
 	}
 
 	// Apply ZFS properties if specified in StorageClass
@@ -886,6 +896,13 @@ func (s *ControllerService) setupISCSIVolumeFromClone(ctx context.Context, req *
 		klog.Warningf("Failed to set ZFS user properties on cloned ZVOL %s: %v (volume will still work)", zvol.ID, err)
 	} else {
 		klog.V(4).Infof("Stored ZFS user properties on cloned ZVOL %s", zvol.ID)
+	}
+
+	// Set dataset comment from commentTemplate (if configured) — CloneSnapshot doesn't support setting comments
+	if comment, commentErr := ResolveComment(req.GetParameters(), req.GetName()); commentErr == nil && comment != "" {
+		if _, err := s.apiClient.UpdateDataset(ctx, zvol.ID, tnsapi.DatasetUpdateParams{Comments: comment}); err != nil {
+			klog.Warningf("Failed to set comment on cloned ZVOL %s: %v (non-fatal)", zvol.ID, err)
+		}
 	}
 
 	klog.Infof("Created iSCSI volume from clone: %s (ZVOL: %s, Target: %s, IQN: %s, Extent: %d)",

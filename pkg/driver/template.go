@@ -34,6 +34,9 @@ const (
 	// ParamNameSuffix is the StorageClass parameter for simple suffix.
 	// Example: "-data".
 	ParamNameSuffix = "nameSuffix"
+	// ParamCommentTemplate is the StorageClass parameter for dataset comment template.
+	// Example: "{{ .PVCNamespace }}/{{ .PVCName }}".
+	ParamCommentTemplate = "commentTemplate"
 )
 
 // VolumeNameContext holds the context variables available for name templating.
@@ -249,4 +252,28 @@ func ResolveVolumeName(params map[string]string, pvName string) (string, error) 
 
 	// Render the final name
 	return renderVolumeName(config, ctx)
+}
+
+// ResolveComment resolves a dataset comment from a commentTemplate StorageClass parameter.
+// Returns "" if no commentTemplate is configured.
+// Unlike volume names, comments are free-form text and are not sanitized or validated.
+func ResolveComment(params map[string]string, pvName string) (string, error) {
+	templateStr := params[ParamCommentTemplate]
+	if templateStr == "" {
+		return "", nil
+	}
+
+	tmpl, err := template.New("comment").Parse(templateStr)
+	if err != nil {
+		return "", fmt.Errorf("invalid commentTemplate '%s': %w", templateStr, err)
+	}
+
+	ctx := extractVolumeNameContext(params, pvName)
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, ctx); err != nil {
+		return "", fmt.Errorf("failed to execute comment template: %w", err)
+	}
+
+	return buf.String(), nil
 }

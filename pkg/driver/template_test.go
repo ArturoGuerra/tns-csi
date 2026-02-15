@@ -486,6 +486,92 @@ func TestResolveVolumeName(t *testing.T) {
 	}
 }
 
+func TestResolveComment(t *testing.T) {
+	tests := []struct {
+		params      map[string]string
+		name        string
+		pvName      string
+		want        string
+		errContains string
+		wantErr     bool
+	}{
+		{
+			name:   "no template returns empty string",
+			params: map[string]string{},
+			pvName: "pvc-12345",
+			want:   "",
+		},
+		{
+			name: "static string",
+			params: map[string]string{
+				ParamCommentTemplate: "my static comment",
+			},
+			pvName: "pvc-12345",
+			want:   "my static comment",
+		},
+		{
+			name: "template with PVC vars",
+			params: map[string]string{
+				ParamCommentTemplate: "{{ .PVCNamespace }}/{{ .PVCName }}",
+				CSIPVCName:           "my-pvc",
+				CSIPVCNamespace:      "my-namespace",
+			},
+			pvName: "pvc-12345",
+			want:   "my-namespace/my-pvc",
+		},
+		{
+			name: "template with PVName",
+			params: map[string]string{
+				ParamCommentTemplate: "PV: {{ .PVName }}",
+			},
+			pvName: "pvc-abcdef-12345",
+			want:   "PV: pvc-abcdef-12345",
+		},
+		{
+			name: "special characters preserved",
+			params: map[string]string{
+				ParamCommentTemplate: "ns={{ .PVCNamespace }} / pvc={{ .PVCName }} @ cluster",
+				CSIPVCName:           "my-pvc",
+				CSIPVCNamespace:      "production",
+			},
+			pvName: "pvc-12345",
+			want:   "ns=production / pvc=my-pvc @ cluster",
+		},
+		{
+			name: "invalid template syntax",
+			params: map[string]string{
+				ParamCommentTemplate: "{{ .Invalid",
+			},
+			pvName:      "pvc-12345",
+			wantErr:     true,
+			errContains: "invalid commentTemplate",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ResolveComment(tt.params, tt.pvName)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ResolveComment() expected error, got nil")
+					return
+				}
+				if tt.errContains != "" && !stringContains(err.Error(), tt.errContains) {
+					t.Errorf("ResolveComment() error = %v, want error containing %q", err, tt.errContains)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("ResolveComment() unexpected error: %v", err)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("ResolveComment() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // stringContains is a helper function for string contains check in tests.
 func stringContains(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
