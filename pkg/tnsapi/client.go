@@ -1400,29 +1400,13 @@ func (c *Client) ListAllNVMeOFSubsystems(ctx context.Context) ([]NVMeOFSubsystem
 	klog.V(4).Infof("Listing all NVMe-oF subsystems")
 
 	var result []NVMeOFSubsystem
-
-	// Try different API methods to find the correct one
-	apiMethods := []string{
-		"sharing.nvme.query",
-		"nvmet.subsystem.query",
-		"nvmet.subsys.query",
-		"iscsi.nvme.subsystem.query",
+	err := c.Call(ctx, "nvmet.subsys.query", []interface{}{}, &result)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrListSubsystemsFailed, err)
 	}
 
-	for _, method := range apiMethods {
-		klog.V(4).Infof("Trying API method: %s (no filter)", method)
-		// Empty filter to get all subsystems
-		err := c.Call(ctx, method, []interface{}{}, &result)
-
-		if err == nil {
-			klog.V(4).Infof("Successfully listed using method %s, found %d subsystems", method, len(result))
-			return result, nil
-		}
-
-		klog.V(4).Infof("Method %s failed: %v", method, err)
-	}
-
-	return nil, ErrListSubsystemsFailed
+	klog.V(4).Infof("Found %d NVMe-oF subsystems", len(result))
+	return result, nil
 }
 
 // AddSubsystemToPort associates an NVMe-oF subsystem with a port.
@@ -1675,7 +1659,7 @@ func (c *Client) DeleteSnapshot(ctx context.Context, snapshotID string) error {
 	}
 
 	var result bool
-	err := c.Call(ctx, "zfs.snapshot.delete", []interface{}{snapshotID, params}, &result)
+	err := c.Call(ctx, "pool.snapshot.delete", []interface{}{snapshotID, params}, &result)
 	if err != nil {
 		return fmt.Errorf("failed to delete snapshot: %w", err)
 	}
@@ -1694,7 +1678,7 @@ func (c *Client) QuerySnapshots(ctx context.Context, filters []interface{}) ([]S
 	klog.V(4).Infof("Querying snapshots with filters: %+v", filters)
 
 	var result []Snapshot
-	err := c.Call(ctx, "zfs.snapshot.query", []interface{}{filters}, &result)
+	err := c.Call(ctx, "pool.snapshot.query", []interface{}{filters}, &result)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query snapshots: %w", err)
 	}
@@ -1715,7 +1699,7 @@ func (c *Client) QuerySnapshotIDs(ctx context.Context, filters []interface{}) ([
 	var result []struct {
 		ID string `json:"id"`
 	}
-	err := c.Call(ctx, "zfs.snapshot.query", []interface{}{filters, queryOpts}, &result)
+	err := c.Call(ctx, "pool.snapshot.query", []interface{}{filters, queryOpts}, &result)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query snapshot IDs: %w", err)
 	}
@@ -1741,7 +1725,7 @@ func (c *Client) CloneSnapshot(ctx context.Context, params CloneSnapshotParams) 
 
 	// TrueNAS zfs.snapshot.clone returns a boolean indicating success, not the Dataset object
 	var result bool
-	err := c.Call(ctx, "zfs.snapshot.clone", []interface{}{params}, &result)
+	err := c.Call(ctx, "pool.snapshot.clone", []interface{}{params}, &result)
 	if err != nil {
 		return nil, fmt.Errorf("failed to clone snapshot: %w", err)
 	}
