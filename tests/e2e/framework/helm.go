@@ -58,7 +58,7 @@ func (h *HelmDeployer) Deploy(protocol string) error {
 		"--namespace", helmNamespace,
 		"--create-namespace",
 		"--wait",
-		"--timeout", "5m",
+		"--timeout", "8m",
 		"--set", "truenas.url=wss://" + h.config.TrueNASHost + "/api/current",
 		"--set", "truenas.apiKey=" + h.config.TrueNASAPIKey,
 		"--set", "truenas.pool=" + h.config.TrueNASPool,
@@ -126,7 +126,7 @@ func (h *HelmDeployer) Deploy(protocol string) error {
 		return fmt.Errorf("%w: %s", ErrUnknownProtocol, protocol)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 9*time.Minute)
 	defer cancel()
 	return h.runHelm(ctx, args...)
 }

@@ -88,10 +88,12 @@ func (s *NodeService) stageISCSIVolume(ctx context.Context, req *csi.NodeStageVo
 		return nil, status.Errorf(codes.FailedPrecondition, "open-iscsi not available: %v", checkErr)
 	}
 
-	// Retry parameters for handling device stability issues
+	// Retry parameters for handling iSCSI service availability issues.
+	// The iSCSI service on TrueNAS may be temporarily unavailable during
+	// service reloads triggered by target creation.
 	const (
-		maxRetries = 3
-		retryDelay = 5 * time.Second
+		maxRetries = 5
+		retryDelay = 15 * time.Second
 	)
 
 	var lastErr error

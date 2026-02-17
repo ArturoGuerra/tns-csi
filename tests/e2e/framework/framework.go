@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -108,6 +109,19 @@ func SetupSuite(protocol string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 	suite.config = config
+
+	// Pre-flight: verify TrueNAS is reachable before attempting Helm install.
+	// This fails fast with a clear message instead of waiting for Helm's 8-minute timeout.
+	klog.Infof("Pre-flight: checking TrueNAS connectivity at %s", config.TrueNASHost)
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	conn, dialErr := dialer.DialContext(context.Background(), "tcp", net.JoinHostPort(config.TrueNASHost, "443"))
+	if dialErr != nil {
+		return fmt.Errorf("pre-flight failed: TrueNAS unreachable at %s:443: %w", config.TrueNASHost, dialErr)
+	}
+	if closeErr := conn.Close(); closeErr != nil {
+		klog.Warningf("Pre-flight: failed to close connectivity check connection: %v", closeErr)
+	}
+	klog.Infof("Pre-flight: TrueNAS is reachable")
 
 	// Create Helm deployer
 	suite.helm = NewHelmDeployer(config)
