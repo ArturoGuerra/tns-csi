@@ -463,7 +463,6 @@ func safeIndex(slice []string, index int) string {
 
 // getPVCEvents gets recent events for a PVC.
 func getPVCEvents(ctx context.Context, pvcName, namespace string) []string {
-	//nolint:gosec // G204: pvcName and namespace are user-provided to this kubectl plugin - this is expected behavior
 	cmd := exec.CommandContext(ctx, "kubectl", "get", "events",
 		"-n", namespace,
 		"--field-selector", "involvedObject.name="+pvcName,
@@ -494,7 +493,7 @@ func getPVCEvents(ctx context.Context, pvcName, namespace string) []string {
 // getControllerLogs gets CSI controller logs filtered by volume ID.
 func getControllerLogs(ctx context.Context, volumeID string) []string {
 	driverNamespace := discoverDriverNamespace(ctx)
-	cmd := exec.CommandContext(ctx, "kubectl", "logs", //nolint:gosec // driverNamespace comes from Kubernetes API, not user input
+	cmd := exec.CommandContext(ctx, "kubectl", "logs",
 		"-n", driverNamespace,
 		"-l", "app.kubernetes.io/name=tns-csi-driver,app.kubernetes.io/component=controller",
 		"--tail=200")

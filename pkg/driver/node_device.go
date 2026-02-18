@@ -84,7 +84,6 @@ func (s *NodeService) publishBlockVolume(ctx context.Context, stagingTargetPath,
 	klog.V(4).Infof("Executing bind mount command: mount %v", args)
 	mountCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	//nolint:gosec // mount command with dynamic args is expected for CSI driver
 	cmd := exec.CommandContext(mountCtx, "mount", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -141,7 +140,6 @@ func (s *NodeService) publishFilesystemVolume(ctx context.Context, stagingTarget
 	klog.V(4).Infof("Executing bind mount command: mount %v", args)
 	mountCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	//nolint:gosec // mount command with dynamic args is expected for CSI driver
 	cmd := exec.CommandContext(mountCtx, "mount", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {

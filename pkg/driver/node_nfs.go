@@ -73,7 +73,6 @@ func (s *NodeService) stageNFSVolume(ctx context.Context, req *csi.NodeStageVolu
 	klog.V(4).Infof("Executing mount command for staging: mount %v", args)
 	mountCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	//nolint:gosec // mount command with dynamic args is expected for CSI driver
 	cmd := exec.CommandContext(mountCtx, "mount", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -172,7 +171,6 @@ func (s *NodeService) publishNFSVolume(ctx context.Context, req *csi.NodePublish
 	klog.V(4).Infof("Executing bind mount command: mount %v", args)
 	mountCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	//nolint:gosec // mount command with dynamic args is expected for CSI driver
 	cmd := exec.CommandContext(mountCtx, "mount", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {

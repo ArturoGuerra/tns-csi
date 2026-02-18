@@ -338,7 +338,6 @@ func (s *NodeService) connectNVMeOFTarget(ctx context.Context, params *nvmeOFCon
 	klog.V(4).Infof("Discovering NVMe-oF target at %s:%s", params.server, params.port)
 	discoverCtx, discoverCancel := context.WithTimeout(ctx, 15*time.Second)
 	defer discoverCancel()
-	//nolint:gosec // nvme discover with volume context variables is expected for CSI driver
 	discoverCmd := exec.CommandContext(discoverCtx, "nvme", "discover", "-t", params.transport, "-a", params.server, "-s", params.port)
 	if output, discoverErr := discoverCmd.CombinedOutput(); discoverErr != nil {
 		klog.Warningf("NVMe discover failed (this may be OK if target is already known): %v, output: %s", discoverErr, string(output))
@@ -411,7 +410,6 @@ func (s *NodeService) attemptNVMeConnect(ctx context.Context, params *nvmeOFConn
 		klog.V(4).Infof("Using custom queue-size=%s for NVMe-oF connection", params.queueSize)
 	}
 
-	//nolint:gosec // nvme connect with volume context variables is expected for CSI driver
 	connectCmd := exec.CommandContext(connectCtx, "nvme", connectArgs...)
 	output, err := connectCmd.CombinedOutput()
 	if err != nil {
@@ -791,7 +789,6 @@ func (s *NodeService) formatAndMountNVMeDevice(ctx context.Context, volumeID, de
 	mountCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	//nolint:gosec // mount command with dynamic args is expected for CSI driver
 	cmd := exec.CommandContext(mountCtx, "mount", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -1443,7 +1440,6 @@ func (s *NodeService) rescanNVMeNamespace(ctx context.Context, devicePath string
 	rescanCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	//nolint:gosec // nvme ns-rescan with controller path derived from device path is expected for CSI driver
 	cmd := exec.CommandContext(rescanCtx, "nvme", "ns-rescan", controllerPath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {

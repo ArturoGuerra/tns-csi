@@ -42,7 +42,6 @@ func iscsiadmCmd(ctx context.Context, args ...string) *exec.Cmd {
 		nsenterArgs = append(nsenterArgs, "--mount=/proc/1/ns/mnt", "--ipc=/proc/1/ns/ipc", "--", "iscsiadm")
 		nsenterArgs = append(nsenterArgs, args...)
 		klog.V(5).Infof("Running iscsiadm via nsenter: nsenter %v", nsenterArgs)
-		//nolint:gosec // G204: nsenter args are controlled (iscsiadm with CSI-provided params)
 		return exec.CommandContext(ctx, "nsenter", nsenterArgs...)
 	}
 
@@ -482,7 +481,6 @@ func (s *NodeService) formatAndMountISCSIDevice(ctx context.Context, volumeID, d
 	mountCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	//nolint:gosec // mount command with dynamic args is expected for CSI driver
 	cmd := exec.CommandContext(mountCtx, "mount", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {

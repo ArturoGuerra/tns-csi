@@ -212,7 +212,6 @@ func (k *KubernetesClient) dumpPVCDiagnostics(ctx context.Context, pvcName strin
 	// Get PVC events using kubectl
 	eventsCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	//nolint:gosec // args are controlled by the framework
 	cmd := exec.CommandContext(eventsCtx, "kubectl", "get", "events",
 		"-n", k.namespace,
 		"--field-selector", "involvedObject.name="+pvcName,
@@ -469,7 +468,7 @@ func (k *KubernetesClient) logCSINodeLogs(ctx context.Context) {
 
 // logPodEvents logs events related to a pod for debugging.
 func (k *KubernetesClient) logPodEvents(ctx context.Context, podName string) {
-	cmd := exec.CommandContext(ctx, "kubectl", "get", "events", //nolint:gosec // args are controlled by the framework
+	cmd := exec.CommandContext(ctx, "kubectl", "get", "events",
 		"-n", k.namespace,
 		"--field-selector", "involvedObject.name="+podName,
 		"--sort-by=.lastTimestamp",
@@ -500,7 +499,7 @@ func (k *KubernetesClient) ExecInPod(ctx context.Context, podName string, comman
 	args = append(args, "exec", podName, "-n", k.namespace, "--")
 	args = append(args, command...)
 
-	cmd := exec.CommandContext(ctx, "kubectl", args...) //nolint:gosec // args are controlled by the framework
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -614,7 +613,7 @@ func (k *KubernetesClient) WaitForSnapshotReady(ctx context.Context, snapshotNam
 			"-n", k.namespace,
 			"-o", "jsonpath={.status.readyToUse}",
 		}
-		cmd := exec.CommandContext(ctx, "kubectl", args...) //nolint:gosec // args are controlled by the framework
+		cmd := exec.CommandContext(ctx, "kubectl", args...)
 		output, err := cmd.Output()
 		if err != nil {
 			return false, nil //nolint:nilerr // Continue polling on transient errors
@@ -630,7 +629,7 @@ func (k *KubernetesClient) DeleteVolumeSnapshot(ctx context.Context, snapshotNam
 		"-n", k.namespace,
 		"--ignore-not-found=true",
 	}
-	cmd := exec.CommandContext(ctx, "kubectl", args...) //nolint:gosec // args are controlled by the framework
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	return cmd.Run()
 }
 
@@ -683,7 +682,7 @@ func (k *KubernetesClient) GetVolumeSnapshot(ctx context.Context, name string) (
 		"-n", k.namespace,
 		"-o", "json",
 	}
-	cmd := exec.CommandContext(ctx, "kubectl", args...) //nolint:gosec // args are controlled by the framework
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -735,7 +734,7 @@ func (k *KubernetesClient) GetVolumeSnapshotContent(ctx context.Context, snapsho
 		"-n", k.namespace,
 		"-o", "jsonpath={.status.boundVolumeSnapshotContentName}",
 	}
-	cmd := exec.CommandContext(ctx, "kubectl", args...) //nolint:gosec // args are controlled by the framework
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -754,7 +753,7 @@ func (k *KubernetesClient) GetVolumeSnapshotContent(ctx context.Context, snapsho
 		"get", "volumesnapshotcontent", contentName,
 		"-o", "json",
 	}
-	cmd = exec.CommandContext(ctx, "kubectl", args...) //nolint:gosec // args are controlled by the framework
+	cmd = exec.CommandContext(ctx, "kubectl", args...)
 	stdout.Reset()
 	stderr.Reset()
 	cmd.Stdout = &stdout
@@ -800,7 +799,7 @@ func (k *KubernetesClient) DeleteVolumeSnapshotClass(ctx context.Context, name s
 		"delete", "volumesnapshotclass", name,
 		"--ignore-not-found=true",
 	}
-	cmd := exec.CommandContext(ctx, "kubectl", args...) //nolint:gosec // args are controlled by the framework
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	return cmd.Run()
 }
 
@@ -838,7 +837,7 @@ func (k *KubernetesClient) ForceDeletePod(ctx context.Context, name string) erro
 		"--force",
 		"--grace-period=0",
 	}
-	cmd := exec.CommandContext(ctx, "kubectl", args...) //nolint:gosec // args are controlled by the framework
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	return cmd.Run()
 }
 
@@ -952,7 +951,7 @@ func (k *KubernetesClient) ScaleStatefulSet(ctx context.Context, name string, re
 		"-n", k.namespace,
 		fmt.Sprintf("--replicas=%d", replicas),
 	}
-	cmd := exec.CommandContext(ctx, "kubectl", args...) //nolint:gosec // args are controlled by the framework
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
@@ -981,7 +980,7 @@ func (k *KubernetesClient) DeleteStatefulSet(ctx context.Context, name string) e
 		"-n", k.namespace,
 		"--ignore-not-found=true",
 	}
-	cmd := exec.CommandContext(ctx, "kubectl", args...) //nolint:gosec // args are controlled by the framework
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	return cmd.Run()
 }
 
@@ -992,7 +991,7 @@ func (k *KubernetesClient) DeleteService(ctx context.Context, name string) error
 		"-n", k.namespace,
 		"--ignore-not-found=true",
 	}
-	cmd := exec.CommandContext(ctx, "kubectl", args...) //nolint:gosec // args are controlled by the framework
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	return cmd.Run()
 }
 
@@ -1024,7 +1023,7 @@ func (k *KubernetesClient) WaitForPodToBeDeleted(ctx context.Context, name strin
 		"-n", k.namespace,
 		"--timeout=" + timeout.String(),
 	}
-	cmd := exec.CommandContext(ctx, "kubectl", args...) //nolint:gosec // args are controlled by the framework
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
@@ -1112,7 +1111,7 @@ func (k *KubernetesClient) DeleteStorageClass(ctx context.Context, name string) 
 		"delete", "storageclass", name,
 		"--ignore-not-found=true",
 	}
-	cmd := exec.CommandContext(ctx, "kubectl", args...) //nolint:gosec // args are controlled by the framework
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	return cmd.Run()
 }
 
@@ -1153,7 +1152,7 @@ func (k *KubernetesClient) GetControllerLogs(ctx context.Context, tailLines int)
 		"-l", "app.kubernetes.io/name=tns-csi-driver,app.kubernetes.io/component=controller",
 		fmt.Sprintf("--tail=%d", tailLines),
 	}
-	cmd := exec.CommandContext(ctx, "kubectl", args...) //nolint:gosec // args are controlled by the framework
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get controller logs: %w", err)
@@ -1344,7 +1343,7 @@ func (k *KubernetesClient) GetPodLogs(ctx context.Context, namespace, podName, c
 	if containerName != "" {
 		args = append(args, "-c", containerName)
 	}
-	cmd := exec.CommandContext(ctx, "kubectl", args...) //nolint:gosec // args come from test framework, not user input
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get pod logs: %w", err)
