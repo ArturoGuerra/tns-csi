@@ -7,7 +7,8 @@
 [![Distro Compatibility](https://github.com/fenio/tns-csi/actions/workflows/distro-compatibility.yml/badge.svg)](https://github.com/fenio/tns-csi/actions/workflows/distro-compatibility.yml)
 [![Test Dashboard](https://img.shields.io/badge/Test%20Dashboard-View-blue)](https://fenio.github.io/tns-csi/dashboard/)
 [![Docker Hub](https://img.shields.io/docker/pulls/bfenski/tns-csi?logo=docker)](https://hub.docker.com/r/bfenski/tns-csi)
-[![Release](https://img.shields.io/github/v/release/fenio/tns-csi?logo=github)](https://github.com/fenio/tns-csi/releases/latest)
+[![Driver](https://img.shields.io/github/v/release/fenio/tns-csi?filter=v*&label=driver&logo=github)](https://github.com/fenio/tns-csi/releases/latest)
+[![Plugin](https://img.shields.io/github/v/release/fenio/tns-csi?filter=plugin-*&label=plugin&logo=github)](https://github.com/fenio/tns-csi/releases)
 
 A Kubernetes CSI (Container Storage Interface) driver for TrueNAS Scale 25.10+.
 
