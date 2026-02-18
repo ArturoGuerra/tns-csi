@@ -89,7 +89,7 @@ kubectl krew install tns-csi
 | `kubectl tns-csi health` | Check health of all volumes |
 | `kubectl tns-csi troubleshoot <pvc>` | Diagnose PVC issues |
 | `kubectl tns-csi cleanup` | Delete orphaned volumes |
-| `kubectl tns-csi serve` | Start web dashboard on http://localhost:8080 |
+| `kubectl tns-csi serve` | Start web dashboard on http://localhost:2137 |
 
 The plugin **auto-discovers credentials** from the installed driver, so it works out of the box on clusters with tns-csi installed.
 

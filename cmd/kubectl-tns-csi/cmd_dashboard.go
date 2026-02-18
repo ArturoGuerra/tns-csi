@@ -105,7 +105,7 @@ Examples:
 		},
 	}
 
-	cmd.Flags().IntVar(&port, "port", 8080, "Port to listen on")
+	cmd.Flags().IntVar(&port, "port", 2137, "Port to listen on")
 	cmd.Flags().StringVar(&pool, "pool", "", "ZFS pool to search for unmanaged volumes")
 	cmd.Flags().BoolVar(&openBrowser, "open", true, "Open dashboard in default browser")
 

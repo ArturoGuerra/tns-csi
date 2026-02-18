@@ -300,7 +300,7 @@ kubectl tns-csi status <pvc-name>
 Start a web-based dashboard for viewing tns-csi resources in your browser.
 
 ```bash
-# Start dashboard on default port 8080
+# Start dashboard on default port 2137
 kubectl tns-csi serve
 
 # Start on custom port
@@ -325,10 +325,10 @@ Features:
 
 | Flag | Description |
 |------|-------------|
-| `--port` | Port to listen on (default: 8080) |
+| `--port` | Port to listen on (default: 2137) |
 | `--pool` | ZFS pool to search for unmanaged volumes |
 
-Access the dashboard at `http://localhost:8080` after starting.
+Access the dashboard at `http://localhost:2137` after starting.
 
 ## Output Formats
 
