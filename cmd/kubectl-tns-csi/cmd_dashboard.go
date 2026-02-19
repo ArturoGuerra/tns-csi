@@ -294,7 +294,7 @@ func (s *dashboardServer) fetchAllData(ctx context.Context, client tnsapi.Client
 	k8sData := enrichWithK8sData(ctx, false)
 	if k8sData.Available {
 		for i := range data.Volumes {
-			if binding, ok := k8sData.Bindings[data.Volumes[i].VolumeID]; ok {
+			if binding := matchK8sBinding(k8sData.Bindings, data.Volumes[i].Dataset, data.Volumes[i].VolumeID); binding != nil {
 				data.Volumes[i].K8s = binding
 			}
 		}
@@ -449,7 +449,7 @@ func (s *dashboardServer) handlePartialVolumes(w http.ResponseWriter, r *http.Re
 	k8sData := enrichWithK8sData(ctx, false)
 	if k8sData.Available {
 		for i := range volumes {
-			if binding, ok := k8sData.Bindings[volumes[i].VolumeID]; ok {
+			if binding := matchK8sBinding(k8sData.Bindings, volumes[i].Dataset, volumes[i].VolumeID); binding != nil {
 				volumes[i].K8s = binding
 			}
 		}
@@ -603,7 +603,7 @@ func (s *dashboardServer) handlePartialVolumeDetail(w http.ResponseWriter, r *ht
 	// Enrich with Kubernetes PV/PVC/Pod data (best-effort, include pods for detail view)
 	k8sData := enrichWithK8sData(ctx, true)
 	if k8sData.Available {
-		if binding, ok := k8sData.Bindings[details.VolumeID]; ok {
+		if binding := matchK8sBinding(k8sData.Bindings, details.Dataset, details.VolumeID); binding != nil {
 			details.K8s = binding
 		}
 	}

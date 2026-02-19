@@ -217,7 +217,7 @@ func runTroubleshoot(ctx context.Context, pvcName, namespace string, url, apiKey
 	// Step 5: Check dataset on TrueNAS
 	volumeID := pv.VolumeHandle
 	dataset, datasetErr := findDatasetByVolumeID(ctx, client, volumeID)
-	if datasetErr != nil {
+	if datasetErr != nil || dataset == nil {
 		result.Checks = append(result.Checks, TroubleshootCheck{
 			Name:    "TrueNAS Dataset",
 			Status:  statusError,
@@ -307,9 +307,16 @@ func runTroubleshoot(ctx context.Context, pvcName, namespace string, url, apiKey
 	return outputTroubleshootResult(result, *outputFormat)
 }
 
-// findDatasetByVolumeID finds a dataset by volume ID (CSI volume name).
+// findDatasetByVolumeID finds a dataset by volume ID.
+// If volumeID contains "/" it's a dataset path (new format), so try O(1) direct lookup first.
+// Falls back to property search by CSI volume name for old-format IDs.
 func findDatasetByVolumeID(ctx context.Context, client tnsapi.ClientInterface, volumeID string) (*tnsapi.DatasetWithProperties, error) {
-	// Try to find by CSI volume name
+	if strings.Contains(volumeID, "/") {
+		ds, err := client.GetDatasetWithProperties(ctx, volumeID)
+		if err == nil && ds != nil {
+			return ds, nil
+		}
+	}
 	return client.FindDatasetByCSIVolumeName(ctx, "", volumeID)
 }
 

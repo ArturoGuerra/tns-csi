@@ -184,8 +184,12 @@ func findOrphanedVolumes(volumes []VolumeInfo, pvMap map[string]pvInfo, pvcMap m
 
 	for i := range volumes {
 		vol := &volumes[i]
-		// Check if there's a PV with this volume ID
-		pv, hasPV := pvMap[vol.VolumeID]
+		// Check if there's a PV with this volume ID (try dataset path first for new volumes,
+		// then fall back to csi_volume_name for old volumes)
+		pv, hasPV := pvMap[vol.Dataset]
+		if !hasPV && vol.VolumeID != vol.Dataset {
+			pv, hasPV = pvMap[vol.VolumeID]
+		}
 
 		if !hasPV {
 			// No PV exists - definitely orphaned

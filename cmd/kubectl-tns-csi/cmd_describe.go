@@ -144,7 +144,7 @@ func runDescribe(ctx context.Context, volumeRef string, url, apiKey, secretRef, 
 	// Enrich with Kubernetes PV/PVC/Pod data (best-effort, include pods for detail view)
 	k8sData := enrichWithK8sData(ctx, true)
 	if k8sData.Available {
-		if binding, ok := k8sData.Bindings[details.VolumeID]; ok {
+		if binding := matchK8sBinding(k8sData.Bindings, details.Dataset, details.VolumeID); binding != nil {
 			details.K8s = binding
 		}
 	}

@@ -308,7 +308,7 @@ func generatePV(info *adoptionVolumeInfo, server string) map[string]interface{} 
 		"persistentVolumeReclaimPolicy": "Retain", // Safe default for adopted volumes
 		"csi": map[string]interface{}{
 			"driver":           "tns.csi.io",
-			"volumeHandle":     info.volumeID,
+			"volumeHandle":     info.dataset,
 			"volumeAttributes": volumeAttributes,
 		},
 		"claimRef": map[string]interface{}{

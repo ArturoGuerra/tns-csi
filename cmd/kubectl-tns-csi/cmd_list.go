@@ -95,7 +95,7 @@ func runList(ctx context.Context, url, apiKey, secretRef, outputFormat *string, 
 	k8sData := enrichWithK8sData(ctx, false)
 	if k8sData.Available {
 		for i := range volumes {
-			if binding, ok := k8sData.Bindings[volumes[i].VolumeID]; ok {
+			if binding := matchK8sBinding(k8sData.Bindings, volumes[i].Dataset, volumes[i].VolumeID); binding != nil {
 				volumes[i].K8s = binding
 			}
 		}
