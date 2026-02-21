@@ -230,15 +230,11 @@ parameters:
   {{- if eq $protocol "nvmeof" }}
   transport: {{ $sc.transport | default "tcp" | quote }}
   port: {{ $sc.port | default "4420" | quote }}
-  {{- if $sc.fsType }}
-  csi.storage.k8s.io/fstype: {{ $sc.fsType | quote }}
-  {{- end }}
+  csi.storage.k8s.io/fstype: {{ $sc.fsType | default "ext4" | quote }}
   {{- end }}
   {{- if eq $protocol "iscsi" }}
   port: {{ $sc.port | default "3260" | quote }}
-  {{- if $sc.fsType }}
-  csi.storage.k8s.io/fstype: {{ $sc.fsType | quote }}
-  {{- end }}
+  csi.storage.k8s.io/fstype: {{ $sc.fsType | default "ext4" | quote }}
   {{- end }}
   {{- if $sc.parameters }}
   {{- range $key, $value := $sc.parameters }}
