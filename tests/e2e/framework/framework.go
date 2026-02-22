@@ -16,6 +16,17 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// apiKeyPattern matches TrueNAS API keys in error messages for redaction.
+var apiKeyPattern = regexp.MustCompile(`(apiKey=)[^\s,]+`)
+
+// sanitizeError redacts sensitive values (API keys) from error messages before logging.
+func sanitizeError(err error) string {
+	if err == nil {
+		return "<nil>"
+	}
+	return apiKeyPattern.ReplaceAllString(err.Error(), "${1}[REDACTED]")
+}
+
 // suiteState holds suite-level state for Helm deployment.
 // This allows us to deploy Helm once per suite instead of per test.
 type suiteState struct {
@@ -133,7 +144,7 @@ func SetupSuite(protocol string) error {
 	var lastDeployErr error
 	for attempt := 1; attempt <= maxDeployAttempts; attempt++ {
 		if attempt > 1 {
-			klog.Infof("Retrying CSI driver deployment (attempt %d/%d) after previous failure: %v", attempt, maxDeployAttempts, lastDeployErr)
+			klog.Infof("Retrying CSI driver deployment (attempt %d/%d) after previous failure: %s", attempt, maxDeployAttempts, sanitizeError(lastDeployErr))
 			// Uninstall the failed release before retrying
 			if uninstallErr := suite.helm.Undeploy(); uninstallErr != nil {
 				klog.Warningf("Failed to uninstall before retry: %v (continuing anyway)", uninstallErr)
@@ -144,7 +155,7 @@ func SetupSuite(protocol string) error {
 		klog.Infof("Deploying CSI driver with protocol %s (attempt %d/%d)", protocol, attempt, maxDeployAttempts)
 		if deployErr := suite.helm.Deploy(protocol); deployErr != nil {
 			lastDeployErr = deployErr
-			klog.Warningf("Helm deploy attempt %d/%d failed: %v", attempt, maxDeployAttempts, deployErr)
+			klog.Warningf("Helm deploy attempt %d/%d failed: %s", attempt, maxDeployAttempts, sanitizeError(deployErr))
 			continue
 		}
 
