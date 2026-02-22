@@ -216,7 +216,7 @@ func findUnmanagedVolumes(ctx context.Context, client tnsapi.ClientInterface, se
 			vol.Protocol = protocolNFS
 			vol.NFSShareID = share.ID
 			vol.NFSSharePath = share.Path
-		} else if ds.Type == "VOLUME" {
+		} else if ds.Type == datasetTypeVolume {
 			// ZVOLs are typically used for block storage (NVMe-oF or iSCSI)
 			vol.Protocol = "block"
 		}

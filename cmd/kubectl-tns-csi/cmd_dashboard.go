@@ -339,11 +339,11 @@ func (s *dashboardServer) calculateSummary(volumes []VolumeInfo, snapshots []Sna
 	var totalBytes int64
 	for i := range volumes {
 		switch volumes[i].Protocol {
-		case "nfs":
+		case protocolNFS:
 			summary.NFSVolumes++
-		case "nvmeof":
+		case protocolNVMeOF:
 			summary.NVMeOFVolumes++
-		case "iscsi":
+		case protocolISCSI:
 			summary.ISCSIVolumes++
 		}
 		totalBytes += volumes[i].CapacityBytes

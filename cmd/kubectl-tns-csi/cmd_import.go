@@ -260,7 +260,7 @@ func handleISCSIImport(ctx context.Context, client tnsapi.ClientInterface, datas
 	props := make(map[string]string)
 
 	// iSCSI volumes are ZVOLs - verify type
-	if dataset.Type != "VOLUME" {
+	if dataset.Type != datasetTypeVolume {
 		return nil, fmt.Errorf("%w: dataset type is %s", errISCSIRequiresZvol, dataset.Type)
 	}
 

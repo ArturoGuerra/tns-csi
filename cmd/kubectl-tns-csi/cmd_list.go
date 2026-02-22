@@ -22,6 +22,9 @@ const (
 	outputFormatYAML  = "yaml"
 	outputFormatTable = "table"
 	valueTrue         = "true"
+
+	// datasetTypeVolume is the TrueNAS dataset type for ZVOLs.
+	datasetTypeVolume = "VOLUME"
 )
 
 // VolumeInfo represents a tns-csi managed volume.
