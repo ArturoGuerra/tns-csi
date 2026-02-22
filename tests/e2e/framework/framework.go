@@ -126,18 +126,43 @@ func SetupSuite(protocol string) error {
 	// Create Helm deployer
 	suite.helm = NewHelmDeployer(config)
 
-	// Deploy the CSI driver
-	klog.Infof("Deploying CSI driver with protocol %s", protocol)
-	if deployErr := suite.helm.Deploy(protocol); deployErr != nil {
-		return fmt.Errorf("failed to deploy CSI driver: %w", deployErr)
-	}
+	// Deploy the CSI driver with retry logic.
+	// Helm deploy can fail transiently over internet (image pull, TrueNAS WebSocket timeout).
+	// Retry up to 3 times with cleanup between attempts.
+	const maxDeployAttempts = 3
+	var lastDeployErr error
+	for attempt := 1; attempt <= maxDeployAttempts; attempt++ {
+		if attempt > 1 {
+			klog.Infof("Retrying CSI driver deployment (attempt %d/%d) after previous failure: %v", attempt, maxDeployAttempts, lastDeployErr)
+			// Uninstall the failed release before retrying
+			if uninstallErr := suite.helm.Undeploy(); uninstallErr != nil {
+				klog.Warningf("Failed to uninstall before retry: %v (continuing anyway)", uninstallErr)
+			}
+			time.Sleep(10 * time.Second)
+		}
 
-	// Wait for driver to be ready
-	klog.Infof("Waiting for CSI driver to be ready")
-	if waitErr := suite.helm.WaitForReady(2 * time.Minute); waitErr != nil {
-		return fmt.Errorf("CSI driver not ready: %w", waitErr)
+		klog.Infof("Deploying CSI driver with protocol %s (attempt %d/%d)", protocol, attempt, maxDeployAttempts)
+		if deployErr := suite.helm.Deploy(protocol); deployErr != nil {
+			lastDeployErr = deployErr
+			klog.Warningf("Helm deploy attempt %d/%d failed: %v", attempt, maxDeployAttempts, deployErr)
+			continue
+		}
+
+		// Wait for driver to be ready
+		klog.Infof("Waiting for CSI driver to be ready")
+		if waitErr := suite.helm.WaitForReady(2 * time.Minute); waitErr != nil {
+			lastDeployErr = waitErr
+			klog.Warningf("CSI driver readiness check attempt %d/%d failed: %v", attempt, maxDeployAttempts, waitErr)
+			continue
+		}
+
+		klog.Infof("CSI driver is ready")
+		lastDeployErr = nil
+		break
 	}
-	klog.Infof("CSI driver is ready")
+	if lastDeployErr != nil {
+		return fmt.Errorf("failed to deploy CSI driver after %d attempts: %w", maxDeployAttempts, lastDeployErr)
+	}
 
 	// Log driver version info
 	if versionInfo := getDriverVersionInfo(); versionInfo != "" {
