@@ -137,6 +137,12 @@ Validate required TrueNAS configuration
 {{- end }}
 {{- range .Values.storageClasses }}
 {{- if .enabled }}
+{{- if not (mustHas .protocol (list "nfs" "nvmeof" "iscsi")) }}
+  {{- fail (printf "\n\nCONFIGURATION ERROR: storageClasses entry %q: protocol must be one of: nfs, nvmeof, iscsi (got %q)" .name .protocol) }}
+{{- end }}
+{{- if not .pool }}
+  {{- fail (printf "\n\nCONFIGURATION ERROR: storageClasses entry %q: pool is required.\nExample: --set 'storageClasses[0].pool=tank'" .name) }}
+{{- end }}
 {{- if and (eq .protocol "nfs") (not .server) }}
   {{- fail (printf "\n\nCONFIGURATION ERROR: server is required for NFS storage class %q.\nExample: --set 'storageClasses[0].server=YOUR-TRUENAS-IP'" .name) }}
 {{- end }}
