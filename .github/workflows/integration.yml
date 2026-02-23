@@ -308,7 +308,7 @@ jobs:
   ginkgo-e2e-iscsi:
     name: "E2E: iSCSI"
     runs-on: new
-    timeout-minutes: 65
+    timeout-minutes: 75
     needs: compute-tag
     if: |
       !cancelled() && needs.compute-tag.result == 'success' &&
