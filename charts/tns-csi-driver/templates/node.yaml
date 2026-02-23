@@ -74,6 +74,18 @@ spec:
             - name: DEBUG_CSI
               value: "true"
             {{- end }}
+          ports:
+            - name: healthz
+              containerPort: 9808
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 10
+            timeoutSeconds: 3
+            periodSeconds: 10
+            failureThreshold: 5
           securityContext:
             privileged: true
             capabilities:
@@ -122,6 +134,22 @@ spec:
               mountPath: /registration
           resources:
             {{- toYaml .Values.sidecars.nodeDriverRegistrar.resources | nindent 12 }}
+
+        # CSI Liveness Probe sidecar
+        - name: liveness-probe
+          image: "{{ .Values.sidecars.livenessprobe.image.repository }}:{{ .Values.sidecars.livenessprobe.image.tag }}"
+          imagePullPolicy: {{ .Values.sidecars.livenessprobe.image.pullPolicy }}
+          args:
+            - "--csi-address=$(ADDRESS)"
+            - "--health-port=9808"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /csi
+          resources:
+            {{- toYaml .Values.sidecars.livenessprobe.resources | nindent 12 }}
 
       volumes:
         - name: plugin-dir

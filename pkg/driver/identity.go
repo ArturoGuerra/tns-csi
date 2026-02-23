@@ -58,6 +58,13 @@ func (s *IdentityService) GetPluginCapabilities(_ context.Context, _ *csi.GetPlu
 			},
 			// VOLUME_ACCESSIBILITY_CONSTRAINTS removed - not needed and causes issues
 			// with csi-provisioner v5+ which enables topology by default when this is present
+			{
+				Type: &csi.PluginCapability_VolumeExpansion_{
+					VolumeExpansion: &csi.PluginCapability_VolumeExpansion{
+						Type: csi.PluginCapability_VolumeExpansion_ONLINE,
+					},
+				},
+			},
 		},
 	}, nil
 }

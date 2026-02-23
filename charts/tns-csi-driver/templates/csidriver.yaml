@@ -10,7 +10,8 @@ metadata:
   {{- end }}
 spec:
   attachRequired: false
-  podInfoOnMount: false
+  podInfoOnMount: true
+  storageCapacity: true
   fsGroupPolicy: File
   volumeLifecycleModes:
     - Persistent

@@ -423,7 +423,7 @@ func (s *ControllerService) getOrCreateDataset(ctx context.Context, params *nfsV
 	dataset, err := s.apiClient.CreateDataset(ctx, createParams)
 	if err != nil {
 		timer.ObserveError()
-		return nil, status.Errorf(codes.Internal, "Failed to create dataset: %v", err)
+		return nil, createVolumeError("Failed to create dataset", err)
 	}
 
 	klog.V(4).Infof("Created dataset: %s with mountpoint: %s", dataset.Name, dataset.Mountpoint)

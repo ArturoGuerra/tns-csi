@@ -389,7 +389,7 @@ func TestCreateISCSIVolume(t *testing.T) {
 				}
 			},
 			wantErr:  true,
-			wantCode: codes.Internal,
+			wantCode: codes.ResourceExhausted,
 		},
 	}
 

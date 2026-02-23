@@ -290,16 +290,29 @@ func (s *ControllerService) CreateSnapshot(ctx context.Context, req *csi.CreateS
 		return nil, status.Errorf(codes.NotFound, "Source volume %s not found", sourceVolumeID)
 	}
 
-	// Route to appropriate snapshot creation method
-	if detached {
-		return s.createDetachedSnapshot(ctx, timer, snapshotName, sourceVolumeID, datasetName, protocol, pool, detachedParentDataset)
+	// Query source volume capacity for SizeBytes in snapshot response
+	var sourceCapacityBytes int64
+	dataset, getErr := s.apiClient.GetDatasetWithProperties(ctx, datasetName)
+	if getErr == nil && dataset != nil {
+		if capProp, ok := dataset.UserProperties[tnsapi.PropertyCapacityBytes]; ok {
+			sourceCapacityBytes = tnsapi.StringToInt64(capProp.Value)
+		}
+		// Fallback: for ZVOLs, use volsize directly
+		if sourceCapacityBytes == 0 {
+			sourceCapacityBytes = getZvolCapacity(&dataset.Dataset)
+		}
 	}
 
-	return s.createRegularSnapshot(ctx, timer, snapshotName, sourceVolumeID, datasetName, protocol)
+	// Route to appropriate snapshot creation method
+	if detached {
+		return s.createDetachedSnapshot(ctx, timer, snapshotName, sourceVolumeID, datasetName, protocol, pool, detachedParentDataset, sourceCapacityBytes)
+	}
+
+	return s.createRegularSnapshot(ctx, timer, snapshotName, sourceVolumeID, datasetName, protocol, sourceCapacityBytes)
 }
 
 // createRegularSnapshot creates a traditional COW ZFS snapshot.
-func (s *ControllerService) createRegularSnapshot(ctx context.Context, timer *metrics.OperationTimer, snapshotName, sourceVolumeID, datasetName, protocol string) (*csi.CreateSnapshotResponse, error) {
+func (s *ControllerService) createRegularSnapshot(ctx context.Context, timer *metrics.OperationTimer, snapshotName, sourceVolumeID, datasetName, protocol string, sizeBytes int64) (*csi.CreateSnapshotResponse, error) {
 	klog.Infof("Creating regular snapshot %s for volume %s (dataset: %s, protocol: %s)",
 		snapshotName, sourceVolumeID, datasetName, protocol)
 
@@ -352,6 +365,7 @@ func (s *ControllerService) createRegularSnapshot(ctx context.Context, timer *me
 						SourceVolumeId: sourceVolumeID,
 						CreationTime:   timestamppb.New(time.Unix(createdAt, 0)),
 						ReadyToUse:     true, // ZFS snapshots are immediately available
+						SizeBytes:      sizeBytes,
 					},
 				}, nil
 			}
@@ -417,6 +431,7 @@ func (s *ControllerService) createRegularSnapshot(ctx context.Context, timer *me
 			SourceVolumeId: sourceVolumeID,
 			CreationTime:   timestamppb.New(time.Unix(createdAt, 0)),
 			ReadyToUse:     true, // ZFS snapshots are immediately available
+			SizeBytes:      sizeBytes,
 		},
 	}, nil
 }

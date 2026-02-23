@@ -650,6 +650,13 @@ func (s *NodeService) NodeGetCapabilities(_ context.Context, _ *csi.NodeGetCapab
 					},
 				},
 			},
+			{
+				Type: &csi.NodeServiceCapability_Rpc{
+					Rpc: &csi.NodeServiceCapability_RPC{
+						Type: csi.NodeServiceCapability_RPC_SINGLE_NODE_MULTI_WRITER,
+					},
+				},
+			},
 		},
 	}, nil
 }

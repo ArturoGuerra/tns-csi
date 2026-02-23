@@ -575,6 +575,15 @@ func TestCreateSnapshot(t *testing.T) {
 				},
 			},
 			mockSetup: func(m *MockAPIClientForSnapshots) {
+				m.GetDatasetWithPropertiesFunc = func(ctx context.Context, datasetID string) (*tnsapi.DatasetWithProperties, error) {
+					return &tnsapi.DatasetWithProperties{
+						Dataset: tnsapi.Dataset{ID: "tank/csi/test-volume", Name: "tank/csi/test-volume"},
+						UserProperties: map[string]tnsapi.UserProperty{
+							tnsapi.PropertyCapacityBytes: {Value: "10737418240"},
+							tnsapi.PropertyProtocol:      {Value: ProtocolNFS},
+						},
+					}, nil
+				}
 				m.QuerySnapshotsFunc = func(ctx context.Context, filters []interface{}) ([]tnsapi.Snapshot, error) {
 					return []tnsapi.Snapshot{}, nil // No existing snapshots
 				}
@@ -601,6 +610,9 @@ func TestCreateSnapshot(t *testing.T) {
 				if !resp.Snapshot.ReadyToUse {
 					t.Error("Expected snapshot to be ready to use")
 				}
+				if resp.Snapshot.SizeBytes != 10737418240 {
+					t.Errorf("Expected SizeBytes 10737418240, got %d", resp.Snapshot.SizeBytes)
+				}
 			},
 		},
 		{
@@ -614,6 +626,15 @@ func TestCreateSnapshot(t *testing.T) {
 				},
 			},
 			mockSetup: func(m *MockAPIClientForSnapshots) {
+				m.GetDatasetWithPropertiesFunc = func(ctx context.Context, datasetID string) (*tnsapi.DatasetWithProperties, error) {
+					return &tnsapi.DatasetWithProperties{
+						Dataset: tnsapi.Dataset{ID: "tank/csi/test-volume", Name: "tank/csi/test-volume"},
+						UserProperties: map[string]tnsapi.UserProperty{
+							tnsapi.PropertyCapacityBytes: {Value: "5368709120"},
+							tnsapi.PropertyProtocol:      {Value: ProtocolNFS},
+						},
+					}, nil
+				}
 				m.QuerySnapshotsFunc = func(ctx context.Context, filters []interface{}) ([]tnsapi.Snapshot, error) {
 					return []tnsapi.Snapshot{
 						{
@@ -632,6 +653,9 @@ func TestCreateSnapshot(t *testing.T) {
 				}
 				if resp.Snapshot.SourceVolumeId != volumeID {
 					t.Errorf("Expected source volume ID %s, got %s", volumeID, resp.Snapshot.SourceVolumeId)
+				}
+				if resp.Snapshot.SizeBytes != 5368709120 {
+					t.Errorf("Expected SizeBytes 5368709120, got %d", resp.Snapshot.SizeBytes)
 				}
 			},
 		},
@@ -890,6 +914,7 @@ func TestListSnapshots(t *testing.T) {
 							UserProperties: map[string]tnsapi.UserProperty{
 								tnsapi.PropertyCSIVolumeName: {Value: "vol1"},
 								tnsapi.PropertyProtocol:      {Value: "nfs"},
+								tnsapi.PropertyCapacityBytes: {Value: "1073741824"},
 							},
 						},
 						{
@@ -897,6 +922,7 @@ func TestListSnapshots(t *testing.T) {
 							UserProperties: map[string]tnsapi.UserProperty{
 								tnsapi.PropertyCSIVolumeName: {Value: "vol2"},
 								tnsapi.PropertyProtocol:      {Value: "nfs"},
+								tnsapi.PropertyCapacityBytes: {Value: "2147483648"},
 							},
 						},
 					}, nil
@@ -922,6 +948,11 @@ func TestListSnapshots(t *testing.T) {
 				t.Helper()
 				if len(resp.Entries) != 2 {
 					t.Errorf("Expected 2 entries, got %d", len(resp.Entries))
+				}
+				for _, entry := range resp.Entries {
+					if entry.Snapshot.SizeBytes == 0 {
+						t.Errorf("Expected SizeBytes to be non-zero for snapshot %s", entry.Snapshot.SnapshotId)
+					}
 				}
 			},
 		},

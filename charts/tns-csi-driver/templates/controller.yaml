@@ -71,12 +71,23 @@ spec:
             - name: DEBUG_CSI
               value: "true"
             {{- end }}
-          {{- if .Values.controller.metrics.enabled }}
           ports:
+            {{- if .Values.controller.metrics.enabled }}
             - name: metrics
               containerPort: {{ .Values.controller.metrics.port }}
               protocol: TCP
-          {{- end }}
+            {{- end }}
+            - name: healthz
+              containerPort: 9808
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 10
+            timeoutSeconds: 3
+            periodSeconds: 10
+            failureThreshold: 5
           volumeMounts:
             - name: socket-dir
               mountPath: /var/lib/csi/sockets/pluginproxy/
@@ -97,9 +108,19 @@ spec:
             - "--leader-election"
             - "--default-fstype=nfs"
             - "--extra-create-metadata"
+            - "--enable-capacity"
+            - "--capacity-ownerref-level=2"
           env:
             - name: ADDRESS
               value: /var/lib/csi/sockets/pluginproxy/csi.sock
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           volumeMounts:
             - name: socket-dir
               mountPath: /var/lib/csi/sockets/pluginproxy/
@@ -170,6 +191,22 @@ spec:
           resources:
             {{- toYaml .Values.sidecars.snapshotter.resources | nindent 12 }}
         {{- end }}
+
+        # CSI Liveness Probe sidecar
+        - name: liveness-probe
+          image: "{{ .Values.sidecars.livenessprobe.image.repository }}:{{ .Values.sidecars.livenessprobe.image.tag }}"
+          imagePullPolicy: {{ .Values.sidecars.livenessprobe.image.pullPolicy }}
+          args:
+            - "--csi-address=$(ADDRESS)"
+            - "--health-port=9808"
+          env:
+            - name: ADDRESS
+              value: /var/lib/csi/sockets/pluginproxy/csi.sock
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /var/lib/csi/sockets/pluginproxy/
+          resources:
+            {{- toYaml .Values.sidecars.livenessprobe.resources | nindent 12 }}
 
       volumes:
         - name: socket-dir

@@ -123,6 +123,21 @@ func (s *ControllerService) listSnapshotByID(ctx context.Context, req *csi.ListS
 		}, nil
 	}
 
+	// Query source volume capacity for SizeBytes
+	var sizeBytes int64
+	sourceVolumeID := snapshotMeta.SourceVolume
+	if isDatasetPathVolumeID(sourceVolumeID) {
+		ds, dsErr := s.apiClient.GetDatasetWithProperties(ctx, sourceVolumeID)
+		if dsErr == nil && ds != nil {
+			if capProp, ok := ds.UserProperties[tnsapi.PropertyCapacityBytes]; ok {
+				sizeBytes = tnsapi.StringToInt64(capProp.Value)
+			}
+			if sizeBytes == 0 {
+				sizeBytes = getZvolCapacity(&ds.Dataset)
+			}
+		}
+	}
+
 	// Snapshot exists - return it with the metadata we decoded
 	// (which includes protocol, source volume, etc.)
 	entry := &csi.ListSnapshotsResponse_Entry{
@@ -131,6 +146,7 @@ func (s *ControllerService) listSnapshotByID(ctx context.Context, req *csi.ListS
 			SourceVolumeId: snapshotMeta.SourceVolume,
 			CreationTime:   timestamppb.New(time.Unix(snapshotMeta.CreatedAt, 0)),
 			ReadyToUse:     true,
+			SizeBytes:      sizeBytes,
 		},
 	}
 
@@ -163,6 +179,20 @@ func (s *ControllerService) listDetachedSnapshotByID(ctx context.Context, req *c
 
 	klog.V(4).Infof("Found detached snapshot %s at dataset %s", snapshotMeta.SnapshotName, resolvedMeta.DatasetName)
 
+	// Query source volume capacity for SizeBytes
+	var sizeBytes int64
+	if resolvedMeta.SourceVolume != "" && isDatasetPathVolumeID(resolvedMeta.SourceVolume) {
+		ds, dsErr := s.apiClient.GetDatasetWithProperties(ctx, resolvedMeta.SourceVolume)
+		if dsErr == nil && ds != nil {
+			if capProp, ok := ds.UserProperties[tnsapi.PropertyCapacityBytes]; ok {
+				sizeBytes = tnsapi.StringToInt64(capProp.Value)
+			}
+			if sizeBytes == 0 {
+				sizeBytes = getZvolCapacity(&ds.Dataset)
+			}
+		}
+	}
+
 	// Snapshot exists - return it
 	entry := &csi.ListSnapshotsResponse_Entry{
 		Snapshot: &csi.Snapshot{
@@ -170,6 +200,7 @@ func (s *ControllerService) listDetachedSnapshotByID(ctx context.Context, req *c
 			SourceVolumeId: resolvedMeta.SourceVolume,
 			CreationTime:   timestamppb.New(time.Now()), // We don't store creation time in properties
 			ReadyToUse:     true,
+			SizeBytes:      sizeBytes,
 		},
 	}
 
@@ -182,17 +213,24 @@ func (s *ControllerService) listDetachedSnapshotByID(ctx context.Context, req *c
 func (s *ControllerService) listSnapshotsBySourceVolume(ctx context.Context, req *csi.ListSnapshotsRequest) (*csi.ListSnapshotsResponse, error) {
 	sourceVolumeID := req.GetSourceVolumeId()
 
-	// Determine dataset name and protocol for the source volume
+	// Determine dataset name, protocol, and capacity for the source volume
 	var datasetName string
 	var protocol string
+	var sizeBytes int64
 	if isDatasetPathVolumeID(sourceVolumeID) {
 		// New format: volume ID is the dataset path, use directly (O(1))
 		datasetName = sourceVolumeID
-		// Look up protocol from dataset properties
+		// Look up protocol and capacity from dataset properties
 		dataset, err := s.apiClient.GetDatasetWithProperties(ctx, sourceVolumeID)
 		if err == nil && dataset != nil {
 			if prop, ok := dataset.UserProperties[tnsapi.PropertyProtocol]; ok {
 				protocol = prop.Value
+			}
+			if capProp, ok := dataset.UserProperties[tnsapi.PropertyCapacityBytes]; ok {
+				sizeBytes = tnsapi.StringToInt64(capProp.Value)
+			}
+			if sizeBytes == 0 {
+				sizeBytes = getZvolCapacity(&dataset.Dataset)
 			}
 		}
 	} else {
@@ -270,6 +308,7 @@ func (s *ControllerService) listSnapshotsBySourceVolume(ctx context.Context, req
 				SourceVolumeId: req.GetSourceVolumeId(),
 				CreationTime:   timestamppb.New(time.Unix(snapshotMeta.CreatedAt, 0)),
 				ReadyToUse:     true,
+				SizeBytes:      sizeBytes,
 			},
 		}
 		entries = append(entries, entry)
@@ -298,8 +337,9 @@ func (s *ControllerService) listAllSnapshots(ctx context.Context, req *csi.ListS
 
 	// Build metadata map and collect snapshots per managed dataset
 	type datasetMeta struct {
-		volumeID string
-		protocol string
+		volumeID      string
+		protocol      string
+		capacityBytes int64
 	}
 	managedMeta := make(map[string]datasetMeta, len(datasets))
 	for _, ds := range datasets {
@@ -315,7 +355,14 @@ func (s *ControllerService) listAllSnapshots(ctx context.Context, req *csi.ListS
 		if prop, ok := ds.UserProperties[tnsapi.PropertyProtocol]; ok && prop.Value != "" {
 			protocol = prop.Value
 		}
-		managedMeta[ds.ID] = datasetMeta{volumeID: volumeID, protocol: protocol}
+		var capacityBytes int64
+		if capProp, ok := ds.UserProperties[tnsapi.PropertyCapacityBytes]; ok {
+			capacityBytes = tnsapi.StringToInt64(capProp.Value)
+		}
+		if capacityBytes == 0 {
+			capacityBytes = getZvolCapacity(&ds.Dataset)
+		}
+		managedMeta[ds.ID] = datasetMeta{volumeID: volumeID, protocol: protocol, capacityBytes: capacityBytes}
 	}
 
 	// Query snapshots per managed dataset (each query is small and filtered)
@@ -387,6 +434,7 @@ func (s *ControllerService) listAllSnapshots(ctx context.Context, req *csi.ListS
 				SourceVolumeId: meta.volumeID,
 				CreationTime:   timestamppb.New(time.Unix(snapshotMeta.CreatedAt, 0)),
 				ReadyToUse:     true,
+				SizeBytes:      meta.capacityBytes,
 			},
 		}
 		entries = append(entries, entry)

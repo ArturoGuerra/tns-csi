@@ -59,6 +59,41 @@ var (
 	ErrDatasetNotFound = errors.New("dataset not found for share")
 )
 
+// capacityErrorSubstrings are error message patterns that indicate insufficient pool capacity.
+// TrueNAS returns these when a pool or dataset doesn't have enough free space.
+var capacityErrorSubstrings = []string{
+	"insufficient space",
+	"out of space",
+	"not enough space",
+	"no space left",
+	"ENOSPC",
+	"quota exceeded",
+}
+
+// isCapacityError checks if an error indicates a storage capacity issue.
+// Returns codes.ResourceExhausted status if it is, nil otherwise.
+func isCapacityError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := strings.ToLower(err.Error())
+	for _, substr := range capacityErrorSubstrings {
+		if strings.Contains(errStr, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+// createVolumeError returns an appropriate gRPC status error for volume creation failures.
+// Maps capacity-related errors to ResourceExhausted per CSI spec.
+func createVolumeError(msg string, err error) error {
+	if isCapacityError(err) {
+		return status.Errorf(codes.ResourceExhausted, "%s: %v", msg, err)
+	}
+	return status.Errorf(codes.Internal, "%s: %v", msg, err)
+}
+
 // mountpointToDatasetID converts a ZFS mountpoint to a dataset ID.
 // ZFS datasets are mounted at /mnt/<dataset_name>, so we strip the /mnt/ prefix.
 // Example: /mnt/tank/csi/pvc-xxx -> tank/csi/pvc-xxx.
@@ -1506,6 +1541,20 @@ func (s *ControllerService) ControllerGetCapabilities(_ context.Context, _ *csi.
 				Type: &csi.ControllerServiceCapability_Rpc{
 					Rpc: &csi.ControllerServiceCapability_RPC{
 						Type: csi.ControllerServiceCapability_RPC_GET_VOLUME,
+					},
+				},
+			},
+			{
+				Type: &csi.ControllerServiceCapability_Rpc{
+					Rpc: &csi.ControllerServiceCapability_RPC{
+						Type: csi.ControllerServiceCapability_RPC_VOLUME_CONDITION,
+					},
+				},
+			},
+			{
+				Type: &csi.ControllerServiceCapability_Rpc{
+					Rpc: &csi.ControllerServiceCapability_RPC{
+						Type: csi.ControllerServiceCapability_RPC_SINGLE_NODE_MULTI_WRITER,
 					},
 				},
 			},

@@ -313,7 +313,7 @@ func TestCreateNVMeOFVolume(t *testing.T) {
 				}
 			},
 			wantErr:  true,
-			wantCode: codes.Internal,
+			wantCode: codes.ResourceExhausted,
 		},
 		{
 			name: "subsystem creation failure with cleanup",

@@ -18,7 +18,7 @@ import (
 // createDetachedSnapshot creates a detached snapshot using zfs send/receive via TrueNAS replication API.
 // Detached snapshots are stored as full dataset copies, independent of the source volume.
 // They survive deletion of the source volume, making them suitable for backup/DR scenarios.
-func (s *ControllerService) createDetachedSnapshot(ctx context.Context, timer *metrics.OperationTimer, snapshotName, sourceVolumeID, sourceDataset, protocol, pool, detachedParentDataset string) (*csi.CreateSnapshotResponse, error) {
+func (s *ControllerService) createDetachedSnapshot(ctx context.Context, timer *metrics.OperationTimer, snapshotName, sourceVolumeID, sourceDataset, protocol, pool, detachedParentDataset string, sizeBytes int64) (*csi.CreateSnapshotResponse, error) {
 	// Determine the parent dataset for detached snapshots
 	if detachedParentDataset == "" {
 		if pool == "" {
@@ -85,6 +85,7 @@ func (s *ControllerService) createDetachedSnapshot(ctx context.Context, timer *m
 				SourceVolumeId: sourceVolumeID,
 				CreationTime:   timestamppb.New(time.Unix(createdAt, 0)),
 				ReadyToUse:     true,
+				SizeBytes:      sizeBytes,
 			},
 		}, nil
 	}
@@ -214,6 +215,7 @@ func (s *ControllerService) createDetachedSnapshot(ctx context.Context, timer *m
 			SourceVolumeId: sourceVolumeID,
 			CreationTime:   timestamppb.New(time.Unix(createdAt, 0)),
 			ReadyToUse:     true,
+			SizeBytes:      sizeBytes,
 		},
 	}, nil
 }

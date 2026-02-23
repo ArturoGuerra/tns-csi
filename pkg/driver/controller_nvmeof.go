@@ -620,7 +620,7 @@ func (s *ControllerService) getOrCreateZVOL(ctx context.Context, params *nvmeofV
 	zvol, err := s.apiClient.CreateZvol(ctx, createParams)
 	if err != nil {
 		timer.ObserveError()
-		return nil, status.Errorf(codes.Internal, "Failed to create ZVOL: %v", err)
+		return nil, createVolumeError("Failed to create ZVOL", err)
 	}
 
 	klog.V(4).Infof("Created ZVOL: %s (ID: %s)", zvol.Name, zvol.ID)

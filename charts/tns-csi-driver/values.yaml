@@ -217,6 +217,19 @@ sidecars:
         cpu: 200m
         memory: 200Mi
 
+  livenessprobe:
+    image:
+      repository: registry.k8s.io/sig-storage/livenessprobe
+      tag: v2.14.0
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 10m
+        memory: 20Mi
+      limits:
+        cpu: 100m
+        memory: 100Mi
+
 # Storage class configuration
 # Each entry creates a Kubernetes StorageClass. You can have multiple classes
 # per protocol (e.g., two NFS classes with different reclaim policies).
