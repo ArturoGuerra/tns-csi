@@ -1236,7 +1236,7 @@ provisioner: %s
 parameters:
 %sreclaimPolicy: %s
 allowVolumeExpansion: true
-volumeBindingMode: WaitForFirstConsumer
+volumeBindingMode: Immediate
 `, name, provisioner, paramsBuilder.String(), reclaimPolicy)
 
 	return k.applyYAML(ctx, yaml)

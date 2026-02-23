@@ -49,7 +49,7 @@ var _ = Describe("iSCSI ZFS Properties", func() {
 			"fsType":           "ext4",
 			"zfs.compression":  "lz4",
 			"zfs.volblocksize": "16K",
-		}, "WaitForFirstConsumer")
+		}, "Immediate")
 		Expect(err).NotTo(HaveOccurred())
 		f.Cleanup.Add(func() error {
 			return f.K8s.DeleteStorageClass(ctx, zfsStorageClass)
