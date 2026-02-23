@@ -320,13 +320,19 @@ func (s *ControllerService) handleExistingNFSVolume(ctx context.Context, params 
 		return nil, false, status.Errorf(codes.Internal, "Failed to query existing NFS shares: %v", err)
 	}
 
-	if len(existingShares) == 0 {
-		// Dataset exists but no NFS share - continue with share creation
-		return nil, false, nil
+	// Find the share matching this dataset's mountpoint
+	var existingShare *tnsapi.NFSShare
+	for i := range existingShares {
+		if existingShares[i].Path == existingDataset.Mountpoint {
+			existingShare = &existingShares[i]
+			break
+		}
 	}
 
-	// Volume already exists with NFS share - check if capacity matches
-	existingShare := existingShares[0]
+	if existingShare == nil {
+		// Dataset exists but no NFS share for this mountpoint - continue with share creation
+		return nil, false, nil
+	}
 	klog.V(4).Infof("NFS volume already exists (share ID: %d), checking capacity compatibility", existingShare.ID)
 
 	existingCapacity := parseCapacityFromComment(existingShare.Comment)
@@ -349,7 +355,7 @@ func (s *ControllerService) handleExistingNFSVolume(ctx context.Context, params 
 		capacityToReturn = existingCapacity
 	}
 
-	resp := buildNFSVolumeResponse(params.volumeName, params.server, existingDataset, &existingShare, capacityToReturn)
+	resp := buildNFSVolumeResponse(params.volumeName, params.server, existingDataset, existingShare, capacityToReturn)
 
 	timer.ObserveSuccess()
 	return resp, true, nil
