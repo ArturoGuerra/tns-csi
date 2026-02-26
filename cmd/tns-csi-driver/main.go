@@ -20,16 +20,17 @@ var (
 )
 
 var (
-	endpoint      = flag.String("endpoint", "unix:///var/lib/kubelet/plugins/tns.csi.io/csi.sock", "CSI endpoint")
-	nodeID        = flag.String("node-id", "", "Node ID")
-	driverName    = flag.String("driver-name", "tns.csi.io", "Name of the driver")
-	apiURL        = flag.String("api-url", "", "Storage system API URL (e.g., ws://10.10.20.100/api/v2.0/websocket)")
-	apiKey        = flag.String("api-key", "", "Storage system API key")
-	metricsAddr   = flag.String("metrics-addr", ":8080", "Address to expose Prometheus metrics")
-	skipTLSVerify = flag.Bool("skip-tls-verify", false, "Skip TLS certificate verification (for self-signed certificates)")
-	showVersion         = flag.Bool("show-version", false, "Show version and exit")
-	debug               = flag.Bool("debug", false, "Enable debug logging (equivalent to -v=4)")
-	enableNVMeDiscovery = flag.Bool("enable-nvme-discovery", false, "Run nvme discover before nvme connect (default: false, all connection params are known from volume context)")
+	endpoint                  = flag.String("endpoint", "unix:///var/lib/kubelet/plugins/tns.csi.io/csi.sock", "CSI endpoint")
+	nodeID                    = flag.String("node-id", "", "Node ID")
+	driverName                = flag.String("driver-name", "tns.csi.io", "Name of the driver")
+	apiURL                    = flag.String("api-url", "", "Storage system API URL (e.g., ws://10.10.20.100/api/v2.0/websocket)")
+	apiKey                    = flag.String("api-key", "", "Storage system API key")
+	metricsAddr               = flag.String("metrics-addr", ":8080", "Address to expose Prometheus metrics")
+	skipTLSVerify             = flag.Bool("skip-tls-verify", false, "Skip TLS certificate verification (for self-signed certificates)")
+	showVersion               = flag.Bool("show-version", false, "Show version and exit")
+	debug                     = flag.Bool("debug", false, "Enable debug logging (equivalent to -v=4)")
+	enableNVMeDiscovery       = flag.Bool("enable-nvme-discovery", false, "Run nvme discover before nvme connect (default: false, all connection params are known from volume context)")
+	maxConcurrentNVMeConnects = flag.Int("max-concurrent-nvme-connects", 5, "Maximum number of concurrent NVMe-oF connect operations per node (limits kernel NVMe subsystem lock contention)")
 )
 
 func main() {
@@ -72,15 +73,16 @@ func main() {
 	klog.V(4).Infof("Node ID: %s", *nodeID)
 
 	drv, err := driver.NewDriver(driver.Config{
-		DriverName:          *driverName,
-		Version:             version,
-		NodeID:              *nodeID,
-		Endpoint:            *endpoint,
-		APIURL:              *apiURL,
-		APIKey:              *apiKey,
-		MetricsAddr:         *metricsAddr,
-		SkipTLSVerify:       *skipTLSVerify,
-		EnableNVMeDiscovery: *enableNVMeDiscovery,
+		DriverName:                *driverName,
+		Version:                   version,
+		NodeID:                    *nodeID,
+		Endpoint:                  *endpoint,
+		APIURL:                    *apiURL,
+		APIKey:                    *apiKey,
+		MetricsAddr:               *metricsAddr,
+		SkipTLSVerify:             *skipTLSVerify,
+		EnableNVMeDiscovery:       *enableNVMeDiscovery,
+		MaxConcurrentNVMeConnects: *maxConcurrentNVMeConnects,
 	})
 	if err != nil {
 		klog.Fatalf("Failed to create driver: %v", err)

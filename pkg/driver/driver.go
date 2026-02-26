@@ -20,16 +20,17 @@ import (
 
 // Config contains the configuration for the driver.
 type Config struct {
-	DriverName          string
-	Version             string
-	NodeID              string
-	Endpoint            string
-	APIURL              string
-	APIKey              string
-	MetricsAddr         string // Address to expose Prometheus metrics (e.g., ":8080")
-	TestMode            bool   // Enable test mode for sanity tests (skips actual mounts)
-	SkipTLSVerify       bool   // Skip TLS certificate verification (for self-signed certs)
-	EnableNVMeDiscovery bool   // Run nvme discover before nvme connect (default: false)
+	DriverName                string
+	Version                   string
+	NodeID                    string
+	Endpoint                  string
+	APIURL                    string
+	APIKey                    string
+	MetricsAddr               string // Address to expose Prometheus metrics (e.g., ":8080")
+	TestMode                  bool   // Enable test mode for sanity tests (skips actual mounts)
+	SkipTLSVerify             bool   // Skip TLS certificate verification (for self-signed certs)
+	EnableNVMeDiscovery       bool   // Run nvme discover before nvme connect (default: false)
+	MaxConcurrentNVMeConnects int    // Max concurrent NVMe-oF connect operations per node (default: 5)
 }
 
 // Driver is the TNS CSI driver.
@@ -75,7 +76,7 @@ func NewDriverWithClient(cfg Config, client tnsapi.ClientInterface) (*Driver, er
 	// Initialize CSI services
 	d.identity = NewIdentityService(cfg.DriverName, cfg.Version)
 	d.controller = NewControllerService(client, nodeRegistry)
-	d.node = NewNodeService(cfg.NodeID, client, cfg.TestMode, nodeRegistry, cfg.EnableNVMeDiscovery)
+	d.node = NewNodeService(cfg.NodeID, client, cfg.TestMode, nodeRegistry, cfg.EnableNVMeDiscovery, cfg.MaxConcurrentNVMeConnects)
 
 	return d, nil
 }

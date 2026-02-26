@@ -58,6 +58,7 @@ spec:
             {{- if .Values.node.enableNVMeDiscovery }}
             - "--enable-nvme-discovery"
             {{- end }}
+            - "--max-concurrent-nvme-connects={{ .Values.node.maxConcurrentNVMeConnects | default 5 }}"
           env:
             - name: NODE_ID
               valueFrom:

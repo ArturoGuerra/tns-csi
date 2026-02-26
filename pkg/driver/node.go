@@ -37,19 +37,24 @@ type NodeService struct {
 	csi.UnimplementedNodeServer
 	apiClient       tnsapi.ClientInterface
 	nodeRegistry    *NodeRegistry
+	nvmeConnectSem  chan struct{}
 	nodeID          string
-	testMode        bool // Test mode flag to skip actual mounts
-	enableDiscovery bool // Run nvme discover before nvme connect
+	testMode        bool
+	enableDiscovery bool
 }
 
 // NewNodeService creates a new node service.
-func NewNodeService(nodeID string, apiClient tnsapi.ClientInterface, testMode bool, nodeRegistry *NodeRegistry, enableDiscovery bool) *NodeService {
+func NewNodeService(nodeID string, apiClient tnsapi.ClientInterface, testMode bool, nodeRegistry *NodeRegistry, enableDiscovery bool, maxConcurrentNVMeConnects int) *NodeService {
+	if maxConcurrentNVMeConnects <= 0 {
+		maxConcurrentNVMeConnects = 5
+	}
 	return &NodeService{
 		nodeID:          nodeID,
 		apiClient:       apiClient,
 		testMode:        testMode,
 		nodeRegistry:    nodeRegistry,
 		enableDiscovery: enableDiscovery,
+		nvmeConnectSem:  make(chan struct{}, maxConcurrentNVMeConnects),
 	}
 }
 
