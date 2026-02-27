@@ -215,16 +215,9 @@ var _ = Describe("NVMe-oF Volume Adoption", func() {
 		err = f.K8s.WaitForPodDeleted(ctx, adoptedPodName, deleteTimeout)
 		Expect(err).NotTo(HaveOccurred())
 
-		By("Cleaning up the orphaned ZVOL from TrueNAS")
-		// Delete the subsystem first if it was recreated
-		newSubsystemNQN := "nqn.2137.csi.tns:" + newVolumeHandle
-		_ = f.TrueNAS.DeleteNVMeOFSubsystem(ctx, newSubsystemNQN)
-		_ = f.TrueNAS.DeleteNVMeOFSubsystem(ctx, subsystemNQN)
-		err = f.TrueNAS.DeleteDataset(ctx, zvolPath)
-		Expect(err).NotTo(HaveOccurred())
-		if f.Verbose() {
-			GinkgoWriter.Printf("Cleaned up orphaned ZVOL: %s\n", zvolPath)
-		}
+		// TrueNAS resources (NVMe-oF subsystem, port bindings, ZVOL) are cleaned up
+		// by the framework's PVC cleanup, which triggers CSI DeleteVolume.
+		// The adopting StorageClass has no deleteStrategy=retain, so CSI performs full cleanup.
 	})
 
 	It("should mark a volume as adoptable when markAdoptable=true", func() {
@@ -298,7 +291,8 @@ var _ = Describe("NVMe-oF Volume Adoption", func() {
 		Expect(exists).To(BeTrue(), "Dataset should be retained with deleteStrategy=retain")
 
 		By("Cleaning up retained resources from TrueNAS")
-		_ = f.TrueNAS.DeleteNVMeOFSubsystem(ctx, subsystemNQN)
+		err = f.TrueNAS.DeleteNVMeOFSubsystem(ctx, subsystemNQN)
+		Expect(err).NotTo(HaveOccurred(), "Failed to delete retained NVMe-oF subsystem from TrueNAS")
 		err = f.TrueNAS.DeleteDataset(ctx, zvolPath)
 		Expect(err).NotTo(HaveOccurred())
 		if f.Verbose() {

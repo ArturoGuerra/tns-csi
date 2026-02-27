@@ -379,7 +379,8 @@ var _ = Describe("NFS Volume Adoption", func() {
 
 		By("Cleaning up retained resources from TrueNAS")
 		nfsSharePath := "/mnt/" + volumeHandle
-		_ = f.TrueNAS.DeleteNFSShare(ctx, nfsSharePath) // May fail if already deleted
+		err = f.TrueNAS.DeleteNFSShare(ctx, nfsSharePath)
+		Expect(err).NotTo(HaveOccurred(), "Failed to delete retained NFS share from TrueNAS")
 		err = f.TrueNAS.DeleteDataset(ctx, datasetPath)
 		Expect(err).NotTo(HaveOccurred())
 		if f.Verbose() {

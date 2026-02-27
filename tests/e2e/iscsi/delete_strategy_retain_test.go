@@ -130,6 +130,14 @@ var _ = Describe("iSCSI Delete Strategy Retain", func() {
 		By("ZVOL confirmed to still exist on TrueNAS - retain strategy working correctly")
 		GinkgoWriter.Printf("Successfully verified ZVOL %s was retained on TrueNAS\n", zvolPath)
 
+		By("Cleaning up retained iSCSI target from TrueNAS")
+		err = f.TrueNAS.DeleteISCSITarget(ctx, volumeHandle)
+		Expect(err).NotTo(HaveOccurred(), "Failed to delete retained iSCSI target from TrueNAS")
+
+		By("Cleaning up retained iSCSI extent from TrueNAS")
+		err = f.TrueNAS.DeleteISCSIExtent(ctx, volumeHandle)
+		Expect(err).NotTo(HaveOccurred(), "Failed to delete retained iSCSI extent from TrueNAS")
+
 		By("Cleaning up retained ZVOL from TrueNAS")
 		err = f.TrueNAS.DeleteDataset(ctx, zvolPath)
 		Expect(err).NotTo(HaveOccurred(), "Failed to delete retained ZVOL from TrueNAS")
@@ -139,7 +147,7 @@ var _ = Describe("iSCSI Delete Strategy Retain", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(exists).To(BeFalse(), "ZVOL should no longer exist on TrueNAS after cleanup")
 
-		By("Cleanup verified - ZVOL successfully removed from TrueNAS")
+		By("Cleanup verified - ZVOL and iSCSI resources successfully removed from TrueNAS")
 		GinkgoWriter.Printf("Successfully cleaned up ZVOL %s from TrueNAS\n", zvolPath)
 	})
 })

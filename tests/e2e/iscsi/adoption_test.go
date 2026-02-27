@@ -214,17 +214,9 @@ var _ = Describe("iSCSI Volume Adoption", func() {
 		err = f.K8s.WaitForPodDeleted(ctx, adoptedPodName, deleteTimeout)
 		Expect(err).NotTo(HaveOccurred())
 
-		By("Cleaning up the orphaned ZVOL from TrueNAS")
-		// Delete the iSCSI resources first if they were recreated
-		_ = f.TrueNAS.DeleteISCSITarget(ctx, newVolumeHandle)
-		_ = f.TrueNAS.DeleteISCSIExtent(ctx, newVolumeHandle)
-		_ = f.TrueNAS.DeleteISCSITarget(ctx, volumeHandle)
-		_ = f.TrueNAS.DeleteISCSIExtent(ctx, volumeHandle)
-		err = f.TrueNAS.DeleteDataset(ctx, zvolPath)
-		Expect(err).NotTo(HaveOccurred())
-		if f.Verbose() {
-			GinkgoWriter.Printf("Cleaned up orphaned ZVOL: %s\n", zvolPath)
-		}
+		// TrueNAS resources (iSCSI target, extent, ZVOL) are cleaned up
+		// by the framework's PVC cleanup, which triggers CSI DeleteVolume.
+		// The adopting StorageClass has no deleteStrategy=retain, so CSI performs full cleanup.
 	})
 
 	It("should mark a volume as adoptable when markAdoptable=true", func() {
@@ -296,8 +288,10 @@ var _ = Describe("iSCSI Volume Adoption", func() {
 		Expect(exists).To(BeTrue(), "Dataset should be retained with deleteStrategy=retain")
 
 		By("Cleaning up retained resources from TrueNAS")
-		_ = f.TrueNAS.DeleteISCSITarget(ctx, volumeHandle)
-		_ = f.TrueNAS.DeleteISCSIExtent(ctx, volumeHandle)
+		err = f.TrueNAS.DeleteISCSITarget(ctx, volumeHandle)
+		Expect(err).NotTo(HaveOccurred(), "Failed to delete retained iSCSI target from TrueNAS")
+		err = f.TrueNAS.DeleteISCSIExtent(ctx, volumeHandle)
+		Expect(err).NotTo(HaveOccurred(), "Failed to delete retained iSCSI extent from TrueNAS")
 		err = f.TrueNAS.DeleteDataset(ctx, zvolPath)
 		Expect(err).NotTo(HaveOccurred())
 		if f.Verbose() {
