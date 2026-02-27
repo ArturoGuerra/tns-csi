@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/fenio/tns-csi/pkg/retry"
 	"github.com/fenio/tns-csi/pkg/tnsapi"
 	"k8s.io/klog/v2"
 )
@@ -107,14 +108,18 @@ func (v *TrueNASVerifier) NVMeOFSubsystemExists(ctx context.Context, nqn string)
 	return len(subsystems) > 0, nil
 }
 
-// DeleteDataset deletes a dataset from TrueNAS.
-// This is used for cleaning up retained datasets after tests.
+// DeleteDataset deletes a dataset from TrueNAS with recursive+force flags and retry logic.
+// This matches the driver's DeleteDataset approach: passes recursive=true, force=true,
+// and retries on EBUSY errors (12 attempts × 5s interval = ~60s total).
 func (v *TrueNASVerifier) DeleteDataset(ctx context.Context, datasetPath string) error {
-	var result any
-	if err := v.client.Call(ctx, "pool.dataset.delete", []any{datasetPath}, &result); err != nil {
-		return fmt.Errorf("failed to delete dataset %s: %w", datasetPath, err)
-	}
-	return nil
+	return retry.WithRetryNoResult(ctx, retry.DeletionConfig("DeleteDataset("+datasetPath+")"), func() error {
+		var result any
+		params := []any{datasetPath, map[string]any{"recursive": true, "force": true}}
+		if err := v.client.Call(ctx, "pool.dataset.delete", params, &result); err != nil {
+			return fmt.Errorf("failed to delete dataset %s: %w", datasetPath, err)
+		}
+		return nil
+	})
 }
 
 // deleteResourceByFilter is a helper that queries for a resource by filter, gets its ID, and deletes it.
