@@ -237,6 +237,9 @@ parameters:
   transport: {{ $sc.transport | default "tcp" | quote }}
   port: {{ $sc.port | default "4420" | quote }}
   csi.storage.k8s.io/fstype: {{ $sc.fsType | default "ext4" | quote }}
+  {{- if $sc.subsystemNQN }}
+  subsystemNQN: {{ $sc.subsystemNQN | quote }}
+  {{- end }}
   {{- end }}
   {{- if eq $protocol "iscsi" }}
   port: {{ $sc.port | default "3260" | quote }}

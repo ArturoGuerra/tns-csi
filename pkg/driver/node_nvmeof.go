@@ -3,8 +3,10 @@ package driver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -386,6 +388,15 @@ func (s *NodeService) unstageNVMeOFVolume(ctx context.Context, req *csi.NodeUnst
 
 	// Get NQN from volume context
 	nqn := volumeContext["nqn"]
+	if nqn == "" {
+		derivedNQN, deriveErr := s.deriveNQNFromStagingPath(ctx, stagingTargetPath)
+		if deriveErr != nil {
+			klog.Warningf("Failed to derive NVMe-oF NQN from staging path %s: %v", stagingTargetPath, deriveErr)
+		} else {
+			nqn = derivedNQN
+			klog.V(4).Infof("Derived NVMe-oF NQN from staging path %s: %s", stagingTargetPath, nqn)
+		}
+	}
 
 	// Check if mounted and unmount if necessary
 	mounted, err := mount.IsMounted(ctx, stagingTargetPath)
@@ -415,6 +426,74 @@ func (s *NodeService) unstageNVMeOFVolume(ctx context.Context, req *csi.NodeUnst
 	}
 
 	return &csi.NodeUnstageVolumeResponse{}, nil
+}
+
+// deriveNQNFromStagingPath derives the NVMe-oF NQN from Linux mount/device metadata.
+func (s *NodeService) deriveNQNFromStagingPath(ctx context.Context, stagingTargetPath string) (string, error) {
+	devicePath, err := s.getStagedNVMeDevicePath(ctx, stagingTargetPath)
+	if err != nil {
+		return "", err
+	}
+
+	controllerName, err := getNVMeControllerFromDevicePath(devicePath)
+	if err != nil {
+		return "", err
+	}
+
+	nqnPath := filepath.Join("/sys/class/nvme", controllerName, "subsysnqn")
+	//nolint:gosec // sysfs read from fixed kernel path
+	data, err := os.ReadFile(nqnPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read NQN from %s: %w", nqnPath, err)
+	}
+
+	nqn := strings.TrimSpace(string(data))
+	if nqn == "" {
+		return "", fmt.Errorf("empty NQN in %s", nqnPath)
+	}
+	return nqn, nil
+}
+
+// getStagedNVMeDevicePath resolves the NVMe device backing a staging path.
+func (s *NodeService) getStagedNVMeDevicePath(ctx context.Context, stagingTargetPath string) (string, error) {
+	// Filesystem mode: mounted path, source comes from findmnt.
+	if mounted, err := mount.IsMounted(ctx, stagingTargetPath); err == nil && mounted {
+		cmd := exec.CommandContext(ctx, "findmnt", "-n", "-o", "SOURCE", stagingTargetPath)
+		output, cmdErr := cmd.CombinedOutput()
+		if cmdErr != nil {
+			return "", fmt.Errorf("findmnt source lookup failed for %s: %w", stagingTargetPath, cmdErr)
+		}
+		source := strings.TrimSpace(string(output))
+		if source != "" && strings.HasPrefix(filepath.Base(source), "nvme") {
+			return source, nil
+		}
+	}
+
+	// Block mode: staging path is a symlink to /dev/nvmeXnY.
+	resolved, err := filepath.EvalSymlinks(stagingTargetPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve staging path %s: %w", stagingTargetPath, err)
+	}
+	if !strings.HasPrefix(filepath.Base(resolved), "nvme") {
+		return "", fmt.Errorf("staging path %s resolved to non-NVMe device %s", stagingTargetPath, resolved)
+	}
+	return resolved, nil
+}
+
+// getNVMeControllerFromDevicePath extracts controller name (e.g. nvme0) from device path.
+func getNVMeControllerFromDevicePath(devicePath string) (string, error) {
+	base := filepath.Base(devicePath)
+	if !strings.HasPrefix(base, "nvme") {
+		return "", fmt.Errorf("not an NVMe device: %s", devicePath)
+	}
+
+	// Namespace node: nvme0n1 -> nvme0
+	if idx := strings.Index(base[4:], "n"); idx >= 0 {
+		return base[:4+idx], nil
+	}
+
+	// Controller node: nvme0
+	return base, nil
 }
 
 // formatAndMountNVMeDevice formats (if needed) and mounts an NVMe device.

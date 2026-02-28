@@ -82,7 +82,12 @@ var _ = Describe("NVMe-oF Volume Adoption", func() {
 		Expect(volumeHandle).NotTo(BeEmpty())
 
 		zvolPath := volumeHandle
-		subsystemNQN := "nqn.2137.csi.tns:" + volumeHandle
+		pv, err := f.K8s.GetPV(ctx, pvName)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(pv.Spec.CSI).NotTo(BeNil(), "PV should contain CSI spec")
+		subsystemNQN, ok := pv.Spec.CSI.VolumeAttributes["nqn"]
+		Expect(ok).To(BeTrue(), "PV should contain CSI volumeAttributes.nqn")
+		Expect(subsystemNQN).NotTo(BeEmpty())
 		if f.Verbose() {
 			GinkgoWriter.Printf("Volume handle: %s\n", volumeHandle)
 		}
@@ -260,7 +265,12 @@ var _ = Describe("NVMe-oF Volume Adoption", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		zvolPath := volumeHandle
-		subsystemNQN := "nqn.2137.csi.tns:" + volumeHandle
+		pv, err := f.K8s.GetPV(ctx, pvName)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(pv.Spec.CSI).NotTo(BeNil(), "PV should contain CSI spec")
+		subsystemNQN, ok := pv.Spec.CSI.VolumeAttributes["nqn"]
+		Expect(ok).To(BeTrue(), "PV should contain CSI volumeAttributes.nqn")
+		Expect(subsystemNQN).NotTo(BeEmpty())
 		if f.Verbose() {
 			GinkgoWriter.Printf("Volume handle: %s\n", volumeHandle)
 		}
