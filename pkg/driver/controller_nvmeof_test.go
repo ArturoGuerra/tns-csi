@@ -66,7 +66,7 @@ func TestCreateNVMeOFVolume(t *testing.T) {
 					}, nil
 				}
 				m.CreateNVMeOFSubsystemFunc = func(ctx context.Context, params tnsapi.NVMeOFSubsystemCreateParams) (*tnsapi.NVMeOFSubsystem, error) {
-					expectedNQN := "nqn.2137.csi.tns:test-nvmeof-volume"
+					expectedNQN := defaultNQNPrefix + ":test-nvmeof-volume"
 					if params.Name != expectedNQN {
 						t.Errorf("Expected NQN %s, got %s", expectedNQN, params.Name)
 					}
@@ -127,7 +127,7 @@ func TestCreateNVMeOFVolume(t *testing.T) {
 				if resp.Volume.VolumeContext["server"] != "192.168.1.100" {
 					t.Errorf("Expected server 192.168.1.100, got %s", resp.Volume.VolumeContext["server"])
 				}
-				expectedNQN := "nqn.2137.csi.tns:test-nvmeof-volume"
+				expectedNQN := defaultNQNPrefix + ":test-nvmeof-volume"
 				if resp.Volume.VolumeContext["nqn"] != expectedNQN {
 					t.Errorf("Expected NQN %s, got %s", expectedNQN, resp.Volume.VolumeContext["nqn"])
 				}
@@ -866,7 +866,7 @@ func TestSetupNVMeOFVolumeFromClone(t *testing.T) {
 			},
 			server: "192.168.1.100",
 			mockSetup: func(m *MockAPIClientForSnapshots) {
-				expectedNQN := "nqn.2137.csi.tns:cloned-nvmeof-volume"
+				expectedNQN := defaultNQNPrefix + ":cloned-nvmeof-volume"
 				m.CreateNVMeOFSubsystemFunc = func(ctx context.Context, params tnsapi.NVMeOFSubsystemCreateParams) (*tnsapi.NVMeOFSubsystem, error) {
 					if params.Name != expectedNQN {
 						t.Errorf("Expected NQN %s, got %s", expectedNQN, params.Name)
@@ -915,7 +915,7 @@ func TestSetupNVMeOFVolumeFromClone(t *testing.T) {
 				if resp.Volume.VolumeContext["server"] != "192.168.1.100" {
 					t.Errorf("Expected server 192.168.1.100, got %s", resp.Volume.VolumeContext["server"])
 				}
-				expectedNQN := "nqn.2137.csi.tns:cloned-nvmeof-volume"
+				expectedNQN := defaultNQNPrefix + ":cloned-nvmeof-volume"
 				if resp.Volume.VolumeContext["nqn"] != expectedNQN {
 					t.Errorf("Expected NQN %s, got %s", expectedNQN, resp.Volume.VolumeContext["nqn"])
 				}
@@ -1288,27 +1288,24 @@ func TestCreateNVMeOFVolumeQueueParams(t *testing.T) {
 func TestGenerateNQN(t *testing.T) {
 	tests := []struct {
 		volumeName string
-		expected   string
 	}{
 		{
 			volumeName: "pvc-12345",
-			expected:   "nqn.2137.csi.tns:pvc-12345",
 		},
 		{
 			volumeName: "my-volume",
-			expected:   "nqn.2137.csi.tns:my-volume",
 		},
 		{
 			volumeName: "test-nvmeof-volume",
-			expected:   "nqn.2137.csi.tns:test-nvmeof-volume",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.volumeName, func(t *testing.T) {
-			result := generateNQN(tt.volumeName)
-			if result != tt.expected {
-				t.Errorf("generateNQN(%s) = %s, want %s", tt.volumeName, result, tt.expected)
+			result := generateNQN(defaultNQNPrefix, tt.volumeName)
+			expected := defaultNQNPrefix + ":" + tt.volumeName
+			if result != expected {
+				t.Errorf("generateNQN(%s) = %s, want %s", tt.volumeName, result, expected)
 			}
 		})
 	}
