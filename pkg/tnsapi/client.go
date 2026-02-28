@@ -2770,21 +2770,18 @@ func (c *Client) ReloadISCSIService(ctx context.Context) error {
 
 	// service.control(verb, service, options) is the documented API for managing services.
 	// For iSCSI, the service name is "iscsitarget" on TrueNAS Scale.
-	var result bool
-	err := c.Call(ctx, "service.control", []interface{}{"RELOAD", "iscsitarget"}, &result)
+	// The API returns a job ID (integer), not a boolean.
+	var jobID int
+	err := c.Call(ctx, "service.control", []interface{}{"RELOAD", "iscsitarget"}, &jobID)
 	if err != nil {
 		// If reload fails, try restart as fallback
 		klog.V(4).Infof("Service reload failed (%v), trying restart", err)
-		err = c.Call(ctx, "service.control", []interface{}{"RESTART", "iscsitarget"}, &result)
+		err = c.Call(ctx, "service.control", []interface{}{"RESTART", "iscsitarget"}, &jobID)
 		if err != nil {
 			return fmt.Errorf("failed to reload/restart iSCSI service: %w", err)
 		}
 	}
 
-	if !result {
-		klog.Warning("iSCSI service reload/restart returned false - service may not have reloaded properly")
-	}
-
-	klog.V(4).Info("iSCSI service reload completed")
+	klog.V(4).Infof("iSCSI service reload completed (job ID: %d)", jobID)
 	return nil
 }
