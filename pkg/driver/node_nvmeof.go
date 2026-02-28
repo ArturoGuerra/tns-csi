@@ -29,6 +29,9 @@ var (
 	ErrDeviceInitializationTimeout = errors.New("device failed to initialize - size remained zero or unreadable")
 	ErrNVMeControllerNotFound      = errors.New("could not extract NVMe controller path from device path")
 	ErrDeviceSizeMismatch          = errors.New("device size does not match expected capacity")
+	ErrNVMeEmptyNQN                = errors.New("empty NQN in sysfs")
+	ErrNVMeNotNVMeDevice           = errors.New("not an NVMe device")
+	ErrNVMeNonNVMeStagingDevice    = errors.New("staging path resolved to non-NVMe device")
 )
 
 // NVMe subsystem states.
@@ -440,7 +443,7 @@ func (s *NodeService) deriveNQNFromStagingPath(ctx context.Context, stagingTarge
 		return "", err
 	}
 
-	nqnPath := filepath.Join("/sys/class/nvme", controllerName, "subsysnqn")
+	nqnPath := "/sys/class/nvme/" + controllerName + "/subsysnqn"
 	//nolint:gosec // sysfs read from fixed kernel path
 	data, err := os.ReadFile(nqnPath)
 	if err != nil {
@@ -449,7 +452,7 @@ func (s *NodeService) deriveNQNFromStagingPath(ctx context.Context, stagingTarge
 
 	nqn := strings.TrimSpace(string(data))
 	if nqn == "" {
-		return "", fmt.Errorf("empty NQN in %s", nqnPath)
+		return "", fmt.Errorf("%s: %w", nqnPath, ErrNVMeEmptyNQN)
 	}
 	return nqn, nil
 }
@@ -475,7 +478,7 @@ func (s *NodeService) getStagedNVMeDevicePath(ctx context.Context, stagingTarget
 		return "", fmt.Errorf("failed to resolve staging path %s: %w", stagingTargetPath, err)
 	}
 	if !strings.HasPrefix(filepath.Base(resolved), "nvme") {
-		return "", fmt.Errorf("staging path %s resolved to non-NVMe device %s", stagingTargetPath, resolved)
+		return "", fmt.Errorf("staging path %s resolved to %s: %w", stagingTargetPath, resolved, ErrNVMeNonNVMeStagingDevice)
 	}
 	return resolved, nil
 }
@@ -484,7 +487,7 @@ func (s *NodeService) getStagedNVMeDevicePath(ctx context.Context, stagingTarget
 func getNVMeControllerFromDevicePath(devicePath string) (string, error) {
 	base := filepath.Base(devicePath)
 	if !strings.HasPrefix(base, "nvme") {
-		return "", fmt.Errorf("not an NVMe device: %s", devicePath)
+		return "", fmt.Errorf("%s: %w", devicePath, ErrNVMeNotNVMeDevice)
 	}
 
 	// Namespace node: nvme0n1 -> nvme0
