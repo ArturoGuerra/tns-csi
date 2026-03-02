@@ -27,6 +27,7 @@ This CSI driver enables Kubernetes to provision and manage persistent volumes on
 - **NFS** - Network File System for file-based storage
 - **NVMe-oF** - NVMe over Fabrics for high-performance block storage
 - **iSCSI** - Traditional block storage protocol with broad compatibility
+- **SMB/CIFS** - Authenticated file sharing with Windows compatibility
 
 ## Comparison with Other Drivers
 
@@ -34,6 +35,7 @@ This CSI driver enables Kubernetes to provision and manage persistent volumes on
 |---|---------|------------------------|----------------|
 | **Best for** | Modern TrueNAS with NVMe-oF | Scheduled snapshots, CHAP auth | Broad compatibility |
 | **Block protocols** | NVMe-oF, iSCSI | iSCSI | iSCSI (+ NVMe-oF for ZoL) |
+| **File protocols** | NFS, SMB | NFS | NFS, SMB |
 | **Unique strength** | kubectl plugin, metrics, adoption, encryption | Scheduled snapshots | Multi-backend, Windows |
 | **Trade-off** | WebSocket API only | No NVMe-oF, no plugin | SSH complexity |
 | **Maturity** | Early development | Very new (Dec 2025) | Mature, production-ready |
@@ -53,20 +55,19 @@ This driver supports three storage protocols:
 - **NFS**: Best for shared file storage where multiple pods need concurrent access (ReadWriteMany)
 - **NVMe-oF**: Best for high-performance block storage with lowest latency and highest IOPS - ideal for databases and latency-sensitive workloads
 - **iSCSI**: Traditional block storage with broad compatibility - useful when NVMe-oF is not available or for environments already using iSCSI
-
-**Note:** SMB/CIFS is not supported due to the Linux-focused nature of this driver. If you need Windows file sharing, consider the Democratic-CSI driver.
+- **SMB/CIFS**: Authenticated file sharing with user-level access control - useful when you need Windows-compatible storage or per-user credentials
 
 ## Features
 
 - **Dynamic volume provisioning** - Automatically create and delete storage volumes
-- **Multiple protocol support** - NFS for file storage, NVMe-oF and iSCSI for block storage
+- **Multiple protocol support** - NFS and SMB for file storage, NVMe-oF and iSCSI for block storage
 - **Volume lifecycle management** - Full create, delete, attach, detach, mount, unmount operations
-- **Volume snapshots** - Create, delete, and restore from snapshots (NFS, NVMe-oF, and iSCSI)
+- **Volume snapshots** - Create, delete, and restore from snapshots (all protocols)
 - **Volume cloning** - Create new volumes from existing snapshots
-- **Volume expansion** - Resize volumes dynamically (NFS, NVMe-oF, and iSCSI)
+- **Volume expansion** - Resize volumes dynamically (all protocols)
 - **Volume retention** - Optional `deleteStrategy: retain` to keep volumes on PVC deletion
 - **Volume adoption** - Automatically adopt orphaned volumes for GitOps and disaster recovery workflows (see [Adoption Guide](docs/ADOPTION.md))
-- **Configurable mount options** - Customize NFS/NVMe-oF/iSCSI mount options via StorageClass
+- **Configurable mount options** - Customize NFS/NVMe-oF/iSCSI/SMB mount options via StorageClass
 - **Configurable ZFS properties** - Set compression, dedup, recordsize, etc. via StorageClass parameters
 - **Access modes** - ReadWriteOnce (RWO), ReadWriteOncePod (RWOP), and ReadWriteMany (RWX) support
 - **Storage classes** - Flexible configuration via Kubernetes storage classes
@@ -100,16 +101,16 @@ See [kubectl Plugin Documentation](docs/KUBECTL-PLUGIN.md) for full details.
 
 ## Kubernetes Distribution Compatibility
 
-This driver is tested and verified to work on **6 Kubernetes distributions** with NFS, NVMe-oF, and iSCSI protocols:
+This driver is tested and verified to work on **6 Kubernetes distributions** with NFS, NVMe-oF, iSCSI, and SMB protocols:
 
-| Distribution | NFS | NVMe-oF | iSCSI | Description |
-|--------------|:---:|:-------:|:-----:|-------------|
-| K3s | ✅ | ✅ | ✅ | Lightweight Kubernetes by Rancher |
-| K0s | ✅ | ✅ | ✅ | Zero-friction Kubernetes by Mirantis |
-| KubeSolo | ✅ | ✅ | ✅ | Single-node Kubernetes |
-| Minikube | ✅ | ✅ | ✅ | Local Kubernetes for development |
-| Talos | ✅ | ✅ | ✅ | Secure, immutable Kubernetes OS |
-| MicroK8s | ✅ | ✅ | ✅ | Lightweight Kubernetes by Canonical |
+| Distribution | NFS | NVMe-oF | iSCSI | SMB | Description |
+|--------------|:---:|:-------:|:-----:|:---:|-------------|
+| K3s | ✅ | ✅ | ✅ | ✅ | Lightweight Kubernetes by Rancher |
+| K0s | ✅ | ✅ | ✅ | ✅ | Zero-friction Kubernetes by Mirantis |
+| KubeSolo | ✅ | ✅ | ✅ | ✅ | Single-node Kubernetes |
+| Minikube | ✅ | ✅ | ✅ | ✅ | Local Kubernetes for development |
+| Talos | ✅ | ✅ | ✅ | ✅ | Secure, immutable Kubernetes OS |
+| MicroK8s | ✅ | ✅ | ✅ | ✅ | Lightweight Kubernetes by Canonical |
 
 Compatibility tests run weekly and on-demand. See [Distro Compatibility Tests](docs/DISTRO-COMPATIBILITY.md) for details.
 
@@ -130,6 +131,13 @@ Compatibility tests run weekly and on-demand. See [Distro Compatibility Tests](d
   - iSCSI service enabled in TrueNAS (System > Services > iSCSI)
   - `open-iscsi` package installed on all Kubernetes nodes (`iscsid` service running)
   - Network connectivity from Kubernetes nodes to TrueNAS on port 3260
+- For SMB:
+  - TrueNAS Scale 25.10+
+  - SMB service enabled in TrueNAS (System > Services > SMB)
+  - SMB user account created (Credentials > Local Users)
+  - `cifs-utils` package installed on all Kubernetes nodes
+  - Kubernetes Secret with SMB credentials (username/password)
+  - Network connectivity from Kubernetes nodes to TrueNAS on port 445
 
 ## Quick Start
 
@@ -192,6 +200,25 @@ helm install tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
 
 **Note:** iSCSI requires the iSCSI service to be enabled in TrueNAS (System > Services). Targets and extents are automatically created per volume.
 
+**SMB Example:**
+```bash
+helm install tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
+  --version 0.12.3 \
+  --namespace kube-system \
+  --create-namespace \
+  --set truenas.url="wss://YOUR-TRUENAS-IP:443/api/current" \
+  --set truenas.apiKey="YOUR-API-KEY" \
+  --set storageClasses[0].name=tns-csi-smb \
+  --set storageClasses[0].enabled=true \
+  --set storageClasses[0].protocol=smb \
+  --set storageClasses[0].pool="YOUR-POOL-NAME" \
+  --set storageClasses[0].server="YOUR-TRUENAS-IP" \
+  --set storageClasses[0].smbCredentialsSecret.name=smb-credentials \
+  --set storageClasses[0].smbCredentialsSecret.namespace=kube-system
+```
+
+**Note:** SMB requires a credentials Secret and the SMB service enabled in TrueNAS. See [QUICKSTART-SMB.md](docs/QUICKSTART-SMB.md) for setup instructions.
+
 See the [Helm chart README](charts/tns-csi-driver/README.md) for detailed configuration options.
 
 ## Configuration
@@ -246,7 +273,7 @@ This driver is tested extensively using **real hardware and software** - not moc
 Every commit triggers comprehensive integration tests:
 
 **Core Functionality Tests:**
-- Basic volume provisioning and deletion (NFS, NVMe-oF & iSCSI)
+- Basic volume provisioning and deletion (NFS, NVMe-oF, iSCSI & SMB)
 - Volume expansion (dynamic resizing)
 - Snapshot creation and restoration
 - Volume cloning from snapshots
@@ -272,9 +299,9 @@ View test results and history: [![Test Dashboard](https://img.shields.io/badge/T
 This driver is in early development and requires extensive testing before production use. Key considerations:
 
 - **Development Phase**: Active development with ongoing testing and validation
-- **Protocol Support**: Currently supports NFS, NVMe-oF, and iSCSI. SMB is not planned (Linux-focused driver).
-- **Volume Expansion**: Implemented and functional for NFS, NVMe-oF, and iSCSI protocols when `allowVolumeExpansion: true` is set in the StorageClass (Helm chart enables this by default)
-- **Snapshots**: Implemented for NFS, NVMe-oF, and iSCSI protocols, functional and tested
+- **Protocol Support**: Currently supports NFS, NVMe-oF, iSCSI, and SMB.
+- **Volume Expansion**: Implemented and functional for all protocols when `allowVolumeExpansion: true` is set in the StorageClass (Helm chart enables this by default)
+- **Snapshots**: Implemented for all protocols, functional and tested
 - **Testing**: Comprehensive automated testing on real infrastructure (see Testing section above)
 - **Stability**: Core features functional but may have undiscovered edge cases or bugs
 
@@ -286,13 +313,15 @@ See [DEPLOYMENT.md](docs/DEPLOYMENT.md#troubleshooting) for detailed troubleshoo
 
 **Common Issues:**
 
-1. **Pods stuck in ContainerCreating**: 
+1. **Pods stuck in ContainerCreating**:
    - For NFS: Check that NFS client utilities are installed on nodes
    - For NVMe-oF: Check that nvme-cli is installed and kernel modules are loaded
+   - For SMB: Check that cifs-utils is installed and credentials Secret exists
 2. **Failed to create volume**: Verify storage API credentials and network connectivity
-3. **Mount failed**: 
+3. **Mount failed**:
    - For NFS: Ensure NFS service is running on TrueNAS and accessible from nodes
    - For NVMe-oF: Ensure NVMe-oF service is enabled and firewall allows port 4420
+   - For SMB: Ensure SMB service is running and firewall allows port 445
 
 **View Logs:**
 
@@ -315,6 +344,7 @@ kubectl logs -n kube-system deployment/tns-csi-controller 2>&1 | head -1
 - [Quick Start - NFS](docs/QUICKSTART.md) - Get started with NFS volumes
 - [Quick Start - NVMe-oF](docs/QUICKSTART-NVMEOF.md) - Get started with NVMe-oF volumes
 - [Quick Start - iSCSI](docs/QUICKSTART-ISCSI.md) - Get started with iSCSI volumes
+- [Quick Start - SMB](docs/QUICKSTART-SMB.md) - Get started with SMB volumes
 - [Snapshots Guide](docs/SNAPSHOTS.md) - Volume snapshots and cloning
 - [Versioning](docs/VERSIONING.md) - Version management and checking installed version
 - [Distro Compatibility](docs/DISTRO-COMPATIBILITY.md) - Kubernetes distribution compatibility testing
@@ -365,6 +395,7 @@ cd tests/sanity && ./test-sanity.sh
 ginkgo -v --timeout=25m ./tests/e2e/nfs/...
 ginkgo -v --timeout=40m ./tests/e2e/nvmeof/...
 ginkgo -v --timeout=40m ./tests/e2e/iscsi/...
+ginkgo -v --timeout=55m ./tests/e2e/smb/...
 ```
 
 See [docs/TESTING.md](docs/TESTING.md) for comprehensive testing documentation.

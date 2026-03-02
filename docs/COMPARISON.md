@@ -12,7 +12,7 @@ This document provides comparisons between TNS-CSI and other CSI drivers for Tru
 - TNS-CSI uses WebSocket API exclusively (no SSH required)
 - Democratic-CSI supports more backends (not just TrueNAS)
 - TNS-CSI has volume adoption, kubectl plugin, and Prometheus metrics
-- Democratic-CSI has Windows support and SMB/CIFS protocol
+- Democratic-CSI has Windows node support
 
 ### [TNS-CSI vs truenas-csi (Official)](COMPARISON-TRUENAS-CSI.md)
 
@@ -31,7 +31,7 @@ The [official TrueNAS CSI driver](https://github.com/truenas/truenas-csi) was re
 | **NFS** | Yes | Yes | Yes |
 | **iSCSI** | Yes | Yes | Yes |
 | **NVMe-oF** | Yes | Yes | No |
-| **SMB/CIFS** | No | Yes | No |
+| **SMB/CIFS** | Yes | Yes | No |
 | **API Method** | WebSocket | SSH (primarily) | WebSocket |
 | **TrueNAS CORE** | No | Yes | No |
 | **TrueNAS SCALE** | 25.10+ | Yes | 25.10+ |
@@ -60,7 +60,7 @@ The [official TrueNAS CSI driver](https://github.com/truenas/truenas-csi) was re
 ### Choose Democratic-CSI if:
 - You need battle-tested, production-proven software
 - You're running TrueNAS CORE or older SCALE versions
-- You need SMB/CIFS or Windows node support
+- You need Windows node support
 - You need multi-backend support (ZoL, Synology, etc.)
 - You need local/ephemeral volume support
 

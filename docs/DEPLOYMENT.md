@@ -58,6 +58,19 @@ This guide explains how to deploy the TrueNAS Scale CSI driver on a Kubernetes c
    iscsiadm --version
    ```
 
+   **For SMB Support:**
+   ```bash
+   # Install cifs-utils on all nodes
+   # Ubuntu/Debian
+   sudo apt-get install -y cifs-utils
+
+   # RHEL/CentOS
+   sudo yum install -y cifs-utils
+
+   # Verify cifs-utils is installed
+   which mount.cifs
+   ```
+
 ## Step 1: Prepare TrueNAS Scale
 
 ### 1.1 Create API Key
@@ -168,7 +181,41 @@ Or if the `subsystemNQN` parameter is missing:
 Parameter 'subsystemNQN' is required for nvmeof protocol
 ```
 
-### 1.5 Enable iSCSI Service (For iSCSI Support)
+### 1.5 Enable SMB Service (For SMB Support)
+
+If you plan to use SMB file storage:
+
+#### Enable the SMB Service
+
+1. Navigate to **System Settings** > **Services**
+2. Find **SMB** service
+3. Click the toggle to enable it
+4. Click **Save** and verify the service is running
+
+#### Create an SMB User Account
+
+The CSI driver needs credentials to mount SMB shares on Kubernetes nodes:
+
+1. Navigate to **Credentials** > **Local Users**
+2. Click **Add**
+3. Configure:
+   - **Username**: `csi-smb` (or any descriptive name)
+   - **Password**: Set a strong password
+   - Ensure **Samba Authentication** is enabled
+4. Click **Save**
+
+#### Create Kubernetes Secret for SMB Credentials
+
+```bash
+kubectl create secret generic smb-credentials \
+  --namespace kube-system \
+  --from-literal=username=csi-smb \
+  --from-literal=password='your-password'
+```
+
+The CSI driver automatically creates and deletes SMB shares for each volume. Only the service, user account, and credentials Secret need to be pre-configured.
+
+### 1.6 Enable iSCSI Service (For iSCSI Support)
 
 **⚠️ IMPORTANT:** iSCSI requires pre-configuration before volume provisioning will work.
 
@@ -287,7 +334,26 @@ helm install tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
   --set storageClasses[0].server="YOUR-TRUENAS-IP"
 ```
 
-**Note:** iSCSI requires a portal and initiator group to be pre-configured. See Step 1.5 for setup instructions.
+**Note:** iSCSI requires a portal and initiator group to be pre-configured. See Step 1.6 for setup instructions.
+
+**For SMB:**
+```bash
+helm install tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
+  --version 0.12.3 \
+  --namespace kube-system \
+  --create-namespace \
+  --set truenas.url="wss://YOUR-TRUENAS-IP:443/api/current" \
+  --set truenas.apiKey="YOUR-API-KEY" \
+  --set storageClasses[0].name="tns-csi-smb" \
+  --set storageClasses[0].enabled=true \
+  --set storageClasses[0].protocol="smb" \
+  --set storageClasses[0].pool="YOUR-POOL-NAME" \
+  --set storageClasses[0].server="YOUR-TRUENAS-IP" \
+  --set storageClasses[0].smbCredentialsSecret.name="smb-credentials" \
+  --set storageClasses[0].smbCredentialsSecret.namespace="kube-system"
+```
+
+**Note:** SMB requires the SMB service and user account to be pre-configured. See Step 1.5 for setup instructions.
 
 This single command will:
 - Create the kube-system namespace if needed
@@ -398,11 +464,25 @@ parameters:
   # zfs.compression: "lz4"                                 # ZFS compression algorithm
 ```
 
+**For SMB:**
+```yaml
+parameters:
+  protocol: "smb"
+  pool: "storage"                                          # Your TrueNAS pool name
+  server: "YOUR-TRUENAS-IP"                                # Your TrueNAS IP/hostname
+  csi.storage.k8s.io/node-stage-secret-name: smb-credentials
+  csi.storage.k8s.io/node-stage-secret-namespace: kube-system
+  # Optional parameters:
+  # deleteStrategy: "retain"                               # Keep volumes on TrueNAS when PVC deleted
+  # zfs.compression: "lz4"                                 # ZFS compression algorithm
+```
+
 **Important Notes:**
 - `subsystemNQN` is **REQUIRED** for NVMe-oF - it must match the subsystem you created in Step 1.4
 - The CSI driver creates **namespaces** within this shared subsystem (not new subsystems per volume)
-- NVMe-oF and iSCSI volumes use `ReadWriteOnce` access mode (block storage), while NFS uses `ReadWriteMany` (shared filesystem)
+- NVMe-oF and iSCSI volumes use `ReadWriteOnce` access mode (block storage), while NFS and SMB use `ReadWriteMany` (shared filesystem)
 - iSCSI creates dedicated targets per volume automatically
+- SMB requires a Kubernetes Secret with credentials (username/password) referenced via `nodeStageSecretRef`
 
 ## Step 4: Deploy to Kubernetes (Manual Deployment Only)
 
@@ -622,7 +702,15 @@ kubectl logs -n kube-system tns-csi-node-xxxxx -c tns-csi-plugin
    - Cause: Too many concurrent `nvme connect` processes overwhelming the kernel's NVMe subsystem registration lock
    - Fix: The driver limits concurrency to 5 by default (`node.maxConcurrentNVMeConnects`). Lower this value if you still see timeouts, or increase it if mounts are too slow on fast hardware
 
-8. **iSCSI connection failures**
+8. **SMB mount failures**
+   - Verify cifs-utils is installed: `which mount.cifs`
+   - Check SMB service is enabled on TrueNAS
+   - Verify credentials Secret exists: `kubectl get secret smb-credentials -n kube-system`
+   - Check firewall allows port 445 (default SMB port)
+   - Test connectivity: `smbclient -L //YOUR-TRUENAS-IP -U csi-smb`
+   - Check node plugin logs for detailed error messages
+
+9. **iSCSI connection failures**
    - Verify open-iscsi is installed: `iscsiadm --version`
    - Check iscsid service is running: `systemctl status iscsid`
    - Verify iSCSI service is enabled on TrueNAS
@@ -872,12 +960,13 @@ This CSI driver supports multiple storage protocols:
 - **NFS** (Network File System): Shared filesystem storage with `ReadWriteMany` support
 - **NVMe-oF** (NVMe over Fabrics): High-performance block storage with `ReadWriteOnce` support
 - **iSCSI** (Internet SCSI): Traditional block storage with broad compatibility and `ReadWriteOnce` support
+- **SMB/CIFS** (Server Message Block): Authenticated file sharing with `ReadWriteMany` support
 
 ## Current Capabilities
 
 The following features are fully implemented and tested:
 
-- **Volume Provisioning**: Dynamic creation and deletion of NFS, NVMe-oF, and iSCSI volumes
+- **Volume Provisioning**: Dynamic creation and deletion of NFS, NVMe-oF, iSCSI, and SMB volumes
 - **Volume Expansion**: Resize volumes dynamically (`allowVolumeExpansion: true` in StorageClass)
 - **Volume Retention**: Optional `deleteStrategy: retain` to keep volumes on PVC deletion
 - **Configurable Mount Options**: Custom mount options via StorageClass `mountOptions` field
@@ -893,4 +982,4 @@ Potential future enhancements:
 
 - **Topology**: Add topology awareness for multi-zone deployments
 
-Note: SMB/CIFS is not supported due to the Linux-focused nature of this driver.
+Note: Windows nodes are not supported (Linux-focused driver). SMB support uses Linux CIFS clients.

@@ -21,14 +21,14 @@
 | **NFS** | Yes | Yes |
 | **iSCSI** | Yes | Yes |
 | **NVMe-oF** | Yes | Yes (zfs-generic-nvmeof driver) |
-| **SMB/CIFS** | No | Yes |
+| **SMB/CIFS** | Yes | Yes |
 
 ## Key Differences
 
 ### Architecture Philosophy
 
 **TNS-CSI:**
-- Supports all three major storage protocols (NFS, iSCSI, NVMe-oF)
+- Supports all four major storage protocols (NFS, iSCSI, NVMe-oF, SMB)
 - WebSocket-based API communication (no SSH required)
 - Single-purpose: TrueNAS Scale 25.10+ only
 - Native Go implementation with minimal dependencies
@@ -111,7 +111,7 @@
 
 - You need production-ready, battle-tested software
 - You're running older TrueNAS/FreeNAS versions or TrueNAS CORE
-- You need SMB/CIFS support
+- You need Windows node support
 - You need Windows node support
 - You want multi-backend flexibility (ZoL, Synology, ObjectiveFS, etc.)
 - You need local/ephemeral volume support

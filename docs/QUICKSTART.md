@@ -378,6 +378,34 @@ helm install tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
 
 See [QUICKSTART-NVMEOF.md](QUICKSTART-NVMEOF.md) for detailed NVMe-oF setup instructions.
 
+### SMB Configuration
+
+To use SMB instead of NFS (requires credentials Secret):
+
+```bash
+helm install tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
+  --version 0.12.3 \
+  --namespace kube-system \
+  --create-namespace \
+  --set truenas.url="wss://YOUR-TRUENAS-IP:443/api/current" \
+  --set truenas.apiKey="YOUR-API-KEY" \
+  --set storageClasses[0].name="tns-csi-smb" \
+  --set storageClasses[0].enabled=true \
+  --set storageClasses[0].protocol="smb" \
+  --set storageClasses[0].pool="YOUR-POOL-NAME" \
+  --set storageClasses[0].server="YOUR-TRUENAS-IP" \
+  --set storageClasses[0].smbCredentialsSecret.name="smb-credentials" \
+  --set storageClasses[0].smbCredentialsSecret.namespace="kube-system"
+```
+
+**Requirements:**
+- SMB service enabled in TrueNAS
+- SMB user account created
+- Kubernetes Secret with credentials (`username`, `password` keys)
+- `cifs-utils` installed on all nodes
+
+See [QUICKSTART-SMB.md](QUICKSTART-SMB.md) for detailed SMB setup instructions.
+
 ## Performance Considerations
 
 ### NFS Performance
@@ -445,7 +473,7 @@ helm uninstall tns-csi --namespace kube-system
 
 ## Snapshots and Cloning
 
-The driver supports volume snapshots and cloning for NFS, NVMe-oF, and iSCSI protocols.
+The driver supports volume snapshots and cloning for NFS, NVMe-oF, iSCSI, and SMB protocols.
 
 ### Quick Snapshot Example
 

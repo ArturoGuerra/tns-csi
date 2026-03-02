@@ -43,13 +43,27 @@ The TNS CSI Driver is a Kubernetes Container Storage Interface (CSI) driver that
 - **Architecture**: Dedicated target model (1 target per volume with 1 extent)
 - **Node Requirements**: `open-iscsi` package installed on Kubernetes nodes
 
-### Why These Protocols?
+### SMB/CIFS (Server Message Block)
+- **Status**: ✅ Functional, testing in progress
+- **Access Modes**: ReadWriteMany (RWX), ReadWriteOnce (RWO), ReadWriteOncePod (RWOP)
+- **Use Case**: Authenticated file sharing, Windows-compatible storage
+- **Mount Protocol**: CIFS (SMB 3.0 default)
+- **TrueNAS Requirements**:
+  - TrueNAS Scale 25.10+
+  - SMB service enabled
+  - SMB user account configured
+- **Node Requirements**: `cifs-utils` package installed on Kubernetes nodes
+- **Authentication**: Username/password via Kubernetes Secret (nodeStageSecretRef)
 
-**Block Storage Options (NVMe-oF vs iSCSI)**:
+### Protocol Selection Guide
+
+**File Storage (NFS vs SMB)**:
+- **NFS**: Best for Linux-native workloads, simpler setup, no authentication required
+- **SMB**: Best when you need user-level authentication or Windows compatibility
+
+**Block Storage (NVMe-oF vs iSCSI)**:
 - **NVMe-oF**: Higher performance, lower latency, better for modern NVMe SSDs
 - **iSCSI**: Broader compatibility, works with any storage, well-established protocol
-
-**No SMB/CIFS Support**: Low priority due to Linux-native protocol focus. Consider Democratic-CSI driver if Windows file sharing is required.
 
 ## Core CSI Features
 
@@ -57,32 +71,34 @@ The TNS CSI Driver is a Kubernetes Container Storage Interface (CSI) driver that
 
 #### Dynamic Provisioning
 - **Status**: ✅ Fully implemented and functional
-- **Protocols**: NFS, NVMe-oF, iSCSI
+- **Protocols**: NFS, NVMe-oF, iSCSI, SMB
 - **Description**: Automatic creation of storage volumes when PVCs are created
 - **Implementation**:
   - NFS: Creates ZFS dataset and NFS share automatically
   - NVMe-oF: Creates ZVOL, dedicated subsystem, and namespace
   - iSCSI: Creates ZVOL, dedicated target, extent, and target-extent mapping
+  - SMB: Creates ZFS dataset and SMB share automatically
 - **Parameters**:
-  - `protocol`: nfs, nvmeof, or iscsi
+  - `protocol`: nfs, nvmeof, iscsi, or smb
   - `pool`: ZFS pool name
   - `server`: TrueNAS IP/hostname
   - `port`: (NVMe-oF/iSCSI) Target port number
 
 #### Volume Deletion
 - **Status**: ✅ Fully implemented and functional
-- **Protocols**: NFS, NVMe-oF, iSCSI
+- **Protocols**: NFS, NVMe-oF, iSCSI, SMB
 - **Description**: Automatic cleanup when PVCs with reclaimPolicy: Delete are removed
 - **Implementation**:
   - NFS: Removes NFS share and deletes ZFS dataset
   - NVMe-oF: Removes namespace, subsystem, and deletes ZVOL
   - iSCSI: Removes target-extent, extent, target, and deletes ZVOL
+  - SMB: Removes SMB share and deletes ZFS dataset
   - Idempotent operations (safe to retry)
   - Supports `deleteStrategy` parameter for volume retention (see below)
 
 #### Delete Strategy (Volume Retention)
 - **Status**: ✅ Implemented
-- **Protocols**: NFS, NVMe-oF, iSCSI
+- **Protocols**: NFS, NVMe-oF, iSCSI, SMB
 - **Description**: Control whether volumes are actually deleted or retained when a PVC is deleted
 - **Parameter**: `deleteStrategy` in StorageClass parameters
 - **Values**:
@@ -108,26 +124,28 @@ reclaimPolicy: Delete
 
 #### Volume Attachment/Detachment
 - **Status**: ✅ Fully implemented and functional
-- **Protocols**: NFS, NVMe-oF, iSCSI
+- **Protocols**: NFS, NVMe-oF, iSCSI, SMB
 - **Description**: Attach volumes to nodes and detach when no longer needed
 - **Implementation**:
   - NFS: Handled by NFSv4 protocol
   - NVMe-oF: Uses nvme-cli for discovery, connect, and disconnect operations
   - iSCSI: Uses open-iscsi for target discovery, login, and logout operations
+  - SMB: CIFS mount with credentials file
 
 #### Volume Mounting/Unmounting
 - **Status**: ✅ Fully implemented and functional
-- **Protocols**: NFS, NVMe-oF, iSCSI
+- **Protocols**: NFS, NVMe-oF, iSCSI, SMB
 - **Description**: Mount volumes into pod containers at specified paths
 - **Implementation**:
   - NFS: Standard NFSv4.2 mount with optimized options
   - NVMe-oF: Block device formatting (ext4/xfs) and filesystem mount
   - iSCSI: Block device formatting (ext4/xfs) and filesystem mount
+  - SMB: CIFS mount with configurable SMB version and options
   - Proper cleanup on unmount
 
 ### Configurable Mount Options
 - **Status**: ✅ Implemented
-- **Protocols**: NFS, NVMe-oF, iSCSI
+- **Protocols**: NFS, NVMe-oF, iSCSI, SMB
 - **Description**: Customize mount options via StorageClass `mountOptions` field
 - **Behavior**: User-specified options are merged with sensible defaults, with user options taking precedence for conflicting keys
 
@@ -138,6 +156,7 @@ reclaimPolicy: Delete
 | NFS | macOS | `vers=4`, `nolock` |
 | NVMe-oF | Linux | `noatime` |
 | iSCSI | Linux | `noatime`, `_netdev` |
+| SMB | Linux | `vers=3.0` |
 
 **Example StorageClass with Custom Mount Options:**
 ```yaml
@@ -180,7 +199,7 @@ reclaimPolicy: Delete
 
 ### Volume Expansion
 - **Status**: ✅ Fully implemented and functional
-- **Protocols**: NFS, NVMe-oF, iSCSI
+- **Protocols**: NFS, NVMe-oF, iSCSI, SMB
 - **Description**: Dynamically resize volumes without downtime
 - **Requirements**: StorageClass must have `allowVolumeExpansion: true` (enabled by default in Helm chart)
 - **Limitations**:
@@ -190,6 +209,7 @@ reclaimPolicy: Delete
   - NFS: Expands ZFS dataset quota
   - NVMe-oF: Expands ZVOL size and resizes filesystem
   - iSCSI: Expands ZVOL size and resizes filesystem
+  - SMB: Expands ZFS dataset quota
 
 **Example:**
 ```bash
@@ -198,7 +218,7 @@ kubectl patch pvc my-pvc -p '{"spec":{"resources":{"requests":{"storage":"20Gi"}
 
 ### Volume Snapshots
 - **Status**: ✅ Implemented, testing in progress
-- **Protocols**: NFS, NVMe-oF, iSCSI
+- **Protocols**: NFS, NVMe-oF, iSCSI, SMB
 - **Description**: Create point-in-time copies of volumes using ZFS snapshots
 - **Features**:
   - Near-instant snapshot creation
@@ -217,7 +237,7 @@ kubectl patch pvc my-pvc -p '{"spec":{"resources":{"requests":{"storage":"20Gi"}
 
 ### Volume Cloning (Restore from Snapshot)
 - **Status**: ✅ Implemented, testing in progress
-- **Protocols**: NFS, NVMe-oF, iSCSI
+- **Protocols**: NFS, NVMe-oF, iSCSI, SMB
 - **Description**: Create new volumes from existing snapshots
 - **Features**:
   - Instant clone creation via ZFS clone
@@ -231,7 +251,7 @@ kubectl patch pvc my-pvc -p '{"spec":{"resources":{"requests":{"storage":"20Gi"}
 
 ### Detached Clones (Independent Clone Restoration)
 - **Status**: ✅ Implemented
-- **Protocols**: NFS, NVMe-oF, iSCSI
+- **Protocols**: NFS, NVMe-oF, iSCSI, SMB
 - **Description**: Create clones that are independent from the source snapshot
 - **Features**:
   - Clone is promoted immediately after creation
@@ -262,7 +282,7 @@ reclaimPolicy: Delete
 
 ### Detached Snapshots (Survive Source Volume Deletion)
 - **Status**: ✅ Implemented
-- **Protocols**: NFS, NVMe-oF, iSCSI
+- **Protocols**: NFS, NVMe-oF, iSCSI, SMB
 - **Description**: Create snapshots that survive deletion of the source volume
 - **Features**:
   - Uses `zfs send | zfs receive` for full data copy
@@ -314,7 +334,7 @@ spec:
 
 ### Volume Health Monitoring
 - **Status**: ✅ Implemented
-- **Protocols**: NFS, NVMe-oF, iSCSI
+- **Protocols**: NFS, NVMe-oF, iSCSI, SMB
 - **Description**: Report volume health status to Kubernetes via CSI `ControllerGetVolume` capability
 - **CSI Capability**: `GET_VOLUME` - enables Kubernetes to query volume health
 - **Features**:
@@ -334,6 +354,8 @@ spec:
 | iSCSI | ZVOL exists | ZVOL not found |
 | iSCSI | Target exists | Target missing |
 | iSCSI | Extent exists | Extent not found |
+| SMB | Dataset exists | Dataset not found or inaccessible |
+| SMB | SMB share enabled | Share disabled or missing |
 
 **Return Values:**
 - `Abnormal: false` - Volume is healthy, all checks passed
@@ -423,7 +445,7 @@ spec:
   - GitHub Container Registry: `oci://ghcr.io/fenio/tns-csi-driver`
 - **Features**:
   - Configurable resource limits
-  - Multiple storage class support (NFS, NVMe-oF, iSCSI)
+  - Multiple storage class support (NFS, NVMe-oF, iSCSI, SMB)
   - ServiceMonitor for Prometheus
   - RBAC configuration
   - Customizable mount options
@@ -437,6 +459,7 @@ spec:
   - Adoption: `markAdoptable`, `adoptExisting` (see "Volume Adoption" section)
   - NFS-specific: `path`
   - NVMe-oF specific: `subsystemNQN`, `fsType`, `transport`, `port`
+  - SMB-specific: `smbCredentialsSecret` (name/namespace for nodeStageSecretRef)
   - ZFS properties: See "Configurable ZFS Properties" section below
 - **Mount Options**: Configurable via StorageClass `mountOptions` field (see "Configurable Mount Options" above)
 
@@ -515,7 +538,7 @@ reclaimPolicy: Delete
 ### ZFS Native Encryption
 - **Status**: ✅ Implemented
 - **Description**: Enable ZFS native encryption for datasets and ZVOLs at creation time
-- **Protocols**: NFS, NVMe-oF, iSCSI
+- **Protocols**: NFS, NVMe-oF, iSCSI, SMB
 
 ZFS native encryption provides transparent, at-rest encryption for your volumes. Once enabled, all data written to the volume is automatically encrypted using AES-256-GCM (default) or other supported algorithms.
 
@@ -860,7 +883,7 @@ See [kubectl Plugin Documentation](KUBECTL-PLUGIN.md) for full details on adopti
 ### Volume Name Templating
 - **Status**: ✅ Implemented
 - **Description**: Customize volume/dataset names on TrueNAS using Go templates
-- **Protocols**: NFS, NVMe-oF, iSCSI
+- **Protocols**: NFS, NVMe-oF, iSCSI, SMB
 - **Use Cases**:
   - Use meaningful names instead of auto-generated PV UUIDs
   - Include namespace/PVC name in dataset names for easier identification
@@ -959,7 +982,7 @@ reclaimPolicy: Delete
 - **Platform**: GitHub Actions with self-hosted runner
 - **Workflows**:
   - CI (lint, build, unit tests)
-  - Integration tests (NFS, NVMe-oF, and iSCSI)
+  - Integration tests (NFS, NVMe-oF, iSCSI, and SMB)
   - Release automation
   - Dashboard generation
 
@@ -967,11 +990,11 @@ reclaimPolicy: Delete
 - **Status**: ✅ Comprehensive test suite
 - **Infrastructure**: Self-hosted (k3s + real TrueNAS)
 - **Test Scenarios**:
-  - Basic volume provisioning and deletion (NFS, NVMe-oF, iSCSI)
-  - Volume expansion (NFS, NVMe-oF, iSCSI)
+  - Basic volume provisioning and deletion (NFS, NVMe-oF, iSCSI, SMB)
+  - Volume expansion (NFS, NVMe-oF, iSCSI, SMB)
   - Concurrent volume operations
   - StatefulSet workloads
-  - Snapshot creation and restoration (NFS, NVMe-oF, iSCSI)
+  - Snapshot creation and restoration (NFS, NVMe-oF, iSCSI, SMB)
   - Volume adoption (GitOps workflows)
   - Connection resilience
   - Orphaned resource cleanup
@@ -1016,6 +1039,10 @@ reclaimPolicy: Delete
   - ✅ ReadWriteOncePod (RWOP) - Single pod access with stricter enforcement
 - **iSCSI**:
   - ✅ ReadWriteOnce (RWO) - Block storage limitation
+  - ✅ ReadWriteOncePod (RWOP) - Single pod access with stricter enforcement
+- **SMB**:
+  - ✅ ReadWriteMany (RWX) - Multiple pods on multiple nodes
+  - ✅ ReadWriteOnce (RWO) - Single pod access
   - ✅ ReadWriteOncePod (RWOP) - Single pod access with stricter enforcement
 
 ### Volume Binding Modes
@@ -1076,6 +1103,12 @@ reclaimPolicy: Delete
 - Network access from Kubernetes nodes
 - ZFS pool with available space
 
+#### For SMB
+- SMB service enabled
+- SMB user account configured (Credentials > Local Users)
+- Network access from Kubernetes nodes (port 445)
+- ZFS pool with available space
+
 #### For NVMe-oF
 - **Static IP address** (DHCP not supported)
 - **Pre-configured NVMe-oF subsystem** with:
@@ -1106,7 +1139,7 @@ reclaimPolicy: Delete
 - TCP transport only (RDMA not implemented)
 
 ### Snapshots
-- Cross-protocol cloning not supported (NFS ↔ NVMe-oF ↔ iSCSI)
+- Cross-protocol cloning not supported (NFS ↔ NVMe-oF ↔ iSCSI ↔ SMB)
 - Cross-pool cloning not supported
 - Restored volumes must be same size or larger
 
@@ -1117,14 +1150,13 @@ reclaimPolicy: Delete
 ## Roadmap / Future Considerations
 
 ### Under Consideration (Not Committed)
-- **SMB/CIFS Protocol**: Low priority, based on community demand
 - **Multi-pool Support**: Advanced scheduling across multiple TrueNAS pools
 - **Topology Awareness**: Multi-zone deployments
 - **Volume Migration**: Move volumes between protocols/pools
 - **Quota Management**: Advanced quota and reservation features
 
 ### Not Planned
-- **Windows Support**: Linux-focused driver
+- **Windows Node Support**: Linux-focused driver (SMB support is for Linux CIFS clients)
 - **Legacy Protocol Support**: Focus on modern protocols only
 
 ## Performance Characteristics
@@ -1154,6 +1186,7 @@ reclaimPolicy: Delete
 - ✅ KUBECTL-PLUGIN.md - kubectl plugin for volume management
 - ✅ QUICKSTART.md - NFS quick start guide
 - ✅ QUICKSTART-NVMEOF.md - NVMe-oF setup guide
+- ✅ QUICKSTART-SMB.md - SMB/CIFS setup guide
 - ✅ SNAPSHOTS.md - Snapshot and cloning guide
 - ✅ ADOPTION.md - Volume adoption and migration guide (including democratic-csi migration)
 - ✅ METRICS.md - Prometheus metrics documentation
@@ -1176,7 +1209,7 @@ All features are tested on **real infrastructure** - not mocks or simulators:
 - ✅ Self-hosted GitHub Actions runner (dedicated Akamai/Linode infrastructure)
 - ✅ Real Kubernetes clusters (k3s) provisioned for each test run
 - ✅ Real TrueNAS Scale 25.10+ server with actual storage pools
-- ✅ Real protocol operations (NFS mounts, NVMe-oF connections, actual I/O)
+- ✅ Real protocol operations (NFS mounts, NVMe-oF connections, SMB shares, actual I/O)
 
 **CSI Specification Compliance:**
 - ✅ Passes [kubernetes-csi/csi-test](https://github.com/kubernetes-csi/csi-test) v5.4.0 sanity tests
@@ -1206,7 +1239,7 @@ See [TESTING.md](TESTING.md) for comprehensive testing documentation.
 2. TrueNAS Scale 25.10+
 3. TrueNAS API key
 4. Helm 3.0+
-5. Protocol-specific tools on nodes: NFS client (NFS), nvme-cli (NVMe-oF), or open-iscsi (iSCSI)
+5. Protocol-specific tools on nodes: NFS client (NFS), nvme-cli (NVMe-oF), open-iscsi (iSCSI), or cifs-utils (SMB)
 
 ### Quick Install (NFS)
 ```bash
