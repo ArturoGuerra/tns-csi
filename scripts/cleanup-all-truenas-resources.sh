@@ -251,6 +251,65 @@ func main() {
 		fmt.Println("\n=== No NFS shares to delete ===")
 	}
 
+	// List SMB shares
+	fmt.Println("\n=== Listing SMB shares ===")
+	var smbShares []map[string]interface{}
+	if err := client.Call(ctx, "sharing.smb.query", []interface{}{}, &smbShares); err != nil {
+		fmt.Printf("Warning: Failed to query SMB shares: %v\n", err)
+	}
+
+	targetSMBShares := []map[string]interface{}{}
+	for _, share := range smbShares {
+		path, ok := share["path"].(string)
+		if !ok {
+			continue
+		}
+
+		shouldInclude := false
+		if mode == "all" {
+			if strings.HasPrefix(path, "/mnt/"+pool+"/") {
+				shouldInclude = true
+			}
+		} else {
+			for _, dsName := range targetDatasets {
+				if strings.Contains(path, dsName) {
+					shouldInclude = true
+					break
+				}
+			}
+		}
+
+		if shouldInclude {
+			targetSMBShares = append(targetSMBShares, share)
+			shareID := share["id"]
+			fmt.Printf("  Found SMB share: %s (ID: %v)\n", path, shareID)
+		}
+	}
+
+	// Delete SMB shares
+	smbSuccessCount := 0
+	smbFailCount := 0
+	if len(targetSMBShares) > 0 {
+		fmt.Printf("\n=== Deleting %d SMB share(s) ===\n", len(targetSMBShares))
+		for _, share := range targetSMBShares {
+			shareID := share["id"]
+			path := share["path"].(string)
+			fmt.Printf("  Deleting SMB share: %s (ID: %v)...\n", path, shareID)
+
+			var result interface{}
+			if err := client.Call(ctx, "sharing.smb.delete", []interface{}{shareID}, &result); err != nil {
+				fmt.Printf("    ⚠ Failed to delete SMB share: %v\n", err)
+				smbFailCount++
+			} else {
+				fmt.Printf("    ✓ Deleted\n")
+				smbSuccessCount++
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+	} else {
+		fmt.Println("\n=== No SMB shares to delete ===")
+	}
+
 	// List NVMe-oF namespaces
 	fmt.Println("\n=== Listing NVMe-oF namespaces ===")
 	namespaces, err := client.QueryAllNVMeOFNamespaces(ctx)
@@ -380,6 +439,7 @@ func main() {
 	if dryRun {
 		fmt.Println("\n=== DRY RUN - No changes will be made ===")
 		fmt.Printf("Would delete %d NFS share(s)\n", len(targetShares))
+		fmt.Printf("Would delete %d SMB share(s)\n", len(targetSMBShares))
 		fmt.Printf("Would delete %d NVMe-oF namespace(s)\n", len(targetNamespaces))
 		fmt.Printf("Would delete %d NVMe-oF subsystem(s)\n", len(targetSubsystems))
 		fmt.Printf("Would delete %d iSCSI extent(s)\n", len(targetExtents))
@@ -805,6 +865,7 @@ func main() {
 
 	fmt.Println("\n=== Summary ===")
 	fmt.Printf("NFS shares:            %d deleted, %d failed\n", nfsSuccessCount, nfsFailCount)
+	fmt.Printf("SMB shares:            %d deleted, %d failed\n", smbSuccessCount, smbFailCount)
 	fmt.Printf("NVMe-oF namespaces:    %d deleted, %d failed\n", nsSuccessCount, nsFailCount)
 	fmt.Printf("NVMe-oF port bindings: %d removed\n", portBindingCount)
 	fmt.Printf("NVMe-oF subsystems:    %d deleted, %d failed\n", ssSuccessCount, ssFailCount)
@@ -813,7 +874,7 @@ func main() {
 	fmt.Printf("iSCSI targets:         %d deleted, %d failed\n", iscsiTargetSuccessCount, iscsiTargetFailCount)
 	fmt.Printf("Datasets:              %d deleted, %d failed\n", successCount, failCount)
 
-	totalFailed := nfsFailCount + nsFailCount + ssFailCount + mappingFailCount + extentFailCount + iscsiTargetFailCount + failCount
+	totalFailed := nfsFailCount + smbFailCount + nsFailCount + ssFailCount + mappingFailCount + extentFailCount + iscsiTargetFailCount + failCount
 	if totalFailed > 0 {
 		fmt.Printf("\n⚠ %d resource(s) failed to delete\n", totalFailed)
 	}
