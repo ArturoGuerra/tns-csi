@@ -245,14 +245,6 @@ func (s *ControllerService) createSMBVolume(ctx context.Context, req *csi.Create
 		return nil, err
 	}
 
-	// SMB requires world-writable permissions so any authenticated SMB user can write.
-	// TrueNAS defaults to NFSv4 ACLs with root-only access; stripacl switches to POSIX mode.
-	if dataset.Mountpoint != "" {
-		if permErr := s.apiClient.SetFilesystemPermissions(ctx, dataset.Mountpoint, "777"); permErr != nil {
-			klog.Warningf("Failed to set permissions on %s: %v (SMB writes may fail)", dataset.Mountpoint, permErr)
-		}
-	}
-
 	smbShare, err := s.createSMBShareForDataset(ctx, dataset, params, timer)
 	if err != nil {
 		return nil, err
@@ -375,13 +367,6 @@ func (s *ControllerService) setupSMBVolumeFromClone(ctx context.Context, req *cs
 	klog.V(4).Infof("Setting up SMB share for cloned dataset: %s (cloneMode: %s)", dataset.Name, info.Mode)
 
 	volumeName := req.GetName()
-
-	// Set world-writable permissions for SMB access (same as new volumes)
-	if dataset.Mountpoint != "" {
-		if err := s.apiClient.SetFilesystemPermissions(ctx, dataset.Mountpoint, "777"); err != nil {
-			klog.Warningf("Failed to set permissions on cloned dataset %s: %v (SMB writes may fail)", dataset.Mountpoint, err)
-		}
-	}
 
 	smbShare, err := s.apiClient.CreateSMBShare(ctx, tnsapi.SMBShareCreateParams{
 		Name:    volumeName,
