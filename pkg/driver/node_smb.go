@@ -89,7 +89,7 @@ func (s *NodeService) stageSMBVolume(ctx context.Context, req *csi.NodeStageVolu
 		return nil, status.Error(codes.InvalidArgument, "server and share must be provided in volume context for SMB volumes")
 	}
 
-	klog.V(4).Infof("Staging SMB volume %s from //%s/%s to %s", volumeID, server, share, stagingTargetPath)
+	klog.Infof("Staging SMB volume %s from //%s/%s to %s", volumeID, server, share, stagingTargetPath)
 
 	if _, err := os.Stat(stagingTargetPath); os.IsNotExist(err) {
 		klog.V(4).Infof("Creating staging target path: %s", stagingTargetPath)
@@ -139,11 +139,11 @@ func (s *NodeService) stageSMBVolume(ctx context.Context, req *csi.NodeStageVolu
 		klog.V(4).Infof("Kerberos authentication detected for volume %s, skipping credentials", volumeID)
 	}
 
-	klog.V(4).Infof("SMB mount options: user=%v, final=%v", userMountOptions, mountOptions)
+	klog.Infof("SMB mount options: user=%v, final=%v", userMountOptions, mountOptions)
 
 	args := []string{"-t", "cifs", "-o", mount.JoinMountOptions(mountOptions), cifsSource, stagingTargetPath}
 
-	klog.V(4).Infof("Executing mount command for staging: mount %v", args)
+	klog.Infof("Executing mount command for staging: mount %v", args)
 	mountCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(mountCtx, "mount", args...)
