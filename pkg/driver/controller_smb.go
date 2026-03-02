@@ -245,17 +245,18 @@ func (s *ControllerService) createSMBVolume(ctx context.Context, req *csi.Create
 		return nil, err
 	}
 
-	// Set NFSv4 ACLs to allow full access for authenticated SMB users.
-	// TrueNAS defaults to root-only NFSv4 ACLs on new datasets.
+	smbShare, err := s.createSMBShareForDataset(ctx, dataset, params, timer)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set NFSv4 ACLs AFTER share creation — TrueNAS may apply a preset ACL
+	// when creating the share, so we override it to allow full access for
+	// authenticated SMB users.
 	if dataset.Mountpoint != "" {
 		if aclErr := s.apiClient.SetFilesystemACL(ctx, dataset.Mountpoint); aclErr != nil {
 			klog.Warningf("Failed to set ACL on %s: %v (SMB writes may fail)", dataset.Mountpoint, aclErr)
 		}
-	}
-
-	smbShare, err := s.createSMBShareForDataset(ctx, dataset, params, timer)
-	if err != nil {
-		return nil, err
 	}
 
 	resp := buildSMBVolumeResponse(params.volumeName, params.server, dataset, smbShare, params.requestedCapacity)
@@ -376,13 +377,6 @@ func (s *ControllerService) setupSMBVolumeFromClone(ctx context.Context, req *cs
 
 	volumeName := req.GetName()
 
-	// Set NFSv4 ACLs on cloned dataset for SMB access (same as new volumes)
-	if dataset.Mountpoint != "" {
-		if aclErr := s.apiClient.SetFilesystemACL(ctx, dataset.Mountpoint); aclErr != nil {
-			klog.Warningf("Failed to set ACL on cloned dataset %s: %v (SMB writes may fail)", dataset.Mountpoint, aclErr)
-		}
-	}
-
 	smbShare, err := s.apiClient.CreateSMBShare(ctx, tnsapi.SMBShareCreateParams{
 		Name:    volumeName,
 		Path:    dataset.Mountpoint,
@@ -395,6 +389,13 @@ func (s *ControllerService) setupSMBVolumeFromClone(ctx context.Context, req *cs
 			klog.Errorf("Failed to cleanup cloned dataset after SMB share creation failure: %v", delErr)
 		}
 		return nil, status.Errorf(codes.Internal, "Failed to create SMB share for cloned volume: %v", err)
+	}
+
+	// Set NFSv4 ACLs AFTER share creation (same as new volumes)
+	if dataset.Mountpoint != "" {
+		if aclErr := s.apiClient.SetFilesystemACL(ctx, dataset.Mountpoint); aclErr != nil {
+			klog.Warningf("Failed to set ACL on cloned dataset %s: %v (SMB writes may fail)", dataset.Mountpoint, aclErr)
+		}
 	}
 
 	requestedCapacity := req.GetCapacityRange().GetRequiredBytes()
