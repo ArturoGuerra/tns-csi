@@ -49,6 +49,9 @@ type ClientInterface interface {
 	QuerySMBShareByID(ctx context.Context, shareID int) (*SMBShare, error)
 	QueryAllSMBShares(ctx context.Context, pathPrefix string) ([]SMBShare, error)
 
+	// Filesystem operations
+	SetFilesystemPermissions(ctx context.Context, path, mode string) error
+
 	// ZVOL operations
 	CreateZvol(ctx context.Context, params ZvolCreateParams) (*Dataset, error)
 

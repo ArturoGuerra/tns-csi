@@ -752,6 +752,11 @@ func (m *MockClient) QueryAllSMBShares(ctx context.Context, pathPrefix string) (
 	return result, nil
 }
 
+// SetFilesystemPermissions mocks filesystem.setperm.
+func (m *MockClient) SetFilesystemPermissions(ctx context.Context, path, mode string) error {
+	return nil
+}
+
 // CreateZvol mocks pool.dataset.create for ZVOLs.
 func (m *MockClient) CreateZvol(ctx context.Context, params tnsapi.ZvolCreateParams) (*tnsapi.Dataset, error) {
 	m.logCall("CreateZvol", params.Name, params.Volsize)

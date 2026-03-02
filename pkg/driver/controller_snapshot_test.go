@@ -159,6 +159,10 @@ func (m *MockAPIClientForSnapshots) QueryAllSMBShares(ctx context.Context, pathP
 	return nil, errors.New("QueryAllSMBSharesFunc not implemented")
 }
 
+func (m *MockAPIClientForSnapshots) SetFilesystemPermissions(ctx context.Context, path, mode string) error {
+	return nil
+}
+
 func (m *MockAPIClientForSnapshots) CreateZvol(ctx context.Context, params tnsapi.ZvolCreateParams) (*tnsapi.Dataset, error) {
 	if m.CreateZvolFunc != nil {
 		return m.CreateZvolFunc(ctx, params)

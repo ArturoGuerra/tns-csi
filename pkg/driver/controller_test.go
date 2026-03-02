@@ -126,6 +126,10 @@ func (m *mockAPIClient) QueryAllSMBShares(ctx context.Context, pathPrefix string
 	return nil, nil
 }
 
+func (m *mockAPIClient) SetFilesystemPermissions(ctx context.Context, path, mode string) error {
+	return nil
+}
+
 func (m *mockAPIClient) CreateZvol(ctx context.Context, params tnsapi.ZvolCreateParams) (*tnsapi.Dataset, error) {
 	return nil, errNotImplemented
 }

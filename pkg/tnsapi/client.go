@@ -1216,6 +1216,36 @@ func (c *Client) QueryAllSMBShares(ctx context.Context, pathFilter string) ([]SM
 	return result, nil
 }
 
+// Filesystem API methods
+
+// SetFilesystemPermissions sets POSIX permissions on a filesystem path using filesystem.setperm.
+// This is a job-based API call; the client waits for job completion.
+// The stripacl option removes any NFSv4 ACLs and switches to POSIX permissions.
+func (c *Client) SetFilesystemPermissions(ctx context.Context, path, mode string) error {
+	klog.V(5).Infof("Setting filesystem permissions on %s to mode %s", path, mode)
+
+	params := map[string]interface{}{
+		"path": path,
+		"mode": mode,
+		"options": map[string]interface{}{
+			"stripacl": true,
+		},
+	}
+
+	var jobID int
+	if err := c.Call(ctx, "filesystem.setperm", []interface{}{params}, &jobID); err != nil {
+		return fmt.Errorf("filesystem.setperm failed for %s: %w", path, err)
+	}
+
+	// filesystem.setperm is a job — wait for completion
+	if err := c.WaitForJob(ctx, jobID, 1*time.Second); err != nil {
+		return fmt.Errorf("filesystem.setperm job failed for %s: %w", path, err)
+	}
+
+	klog.V(5).Infof("Set filesystem permissions on %s to mode %s", path, mode)
+	return nil
+}
+
 // NVMe-oF API methods
 
 // ZvolCreateParams represents parameters for ZVOL creation.
