@@ -1224,7 +1224,7 @@ func (c *Client) QueryAllSMBShares(ctx context.Context, pathFilter string) ([]SM
 // This uses filesystem.setacl (not filesystem.setperm) to preserve NFSv4 ACL type,
 // which is required for TrueNAS to serve SMB shares.
 func (c *Client) SetFilesystemACL(ctx context.Context, path string) error {
-	klog.V(5).Infof("Setting NFSv4 ACL on %s for SMB access", path)
+	klog.Infof("SetFilesystemACL: setting NFSv4 ACL on %s (owner@/group@/everyone@ FULL_CONTROL)", path)
 
 	dacl := []map[string]interface{}{
 		{
@@ -1257,14 +1257,16 @@ func (c *Client) SetFilesystemACL(ctx context.Context, path string) error {
 
 	var jobID int
 	if err := c.Call(ctx, "filesystem.setacl", []interface{}{params}, &jobID); err != nil {
-		return fmt.Errorf("filesystem.setacl failed for %s: %w", path, err)
+		return fmt.Errorf("filesystem.setacl call failed for %s: %w", path, err)
 	}
+
+	klog.Infof("SetFilesystemACL: filesystem.setacl submitted as job %d for %s, waiting for completion", jobID, path)
 
 	if err := c.WaitForJob(ctx, jobID, 1*time.Second); err != nil {
-		return fmt.Errorf("filesystem.setacl job failed for %s: %w", path, err)
+		return fmt.Errorf("filesystem.setacl job %d failed for %s: %w", jobID, path, err)
 	}
 
-	klog.V(5).Infof("Set NFSv4 ACL on %s for SMB access", path)
+	klog.Infof("SetFilesystemACL: successfully set NFSv4 ACL on %s", path)
 	return nil
 }
 

@@ -255,7 +255,7 @@ func (s *ControllerService) createSMBVolume(ctx context.Context, req *csi.Create
 	// authenticated SMB users.
 	if dataset.Mountpoint != "" {
 		if aclErr := s.apiClient.SetFilesystemACL(ctx, dataset.Mountpoint); aclErr != nil {
-			klog.Warningf("Failed to set ACL on %s: %v (SMB writes may fail)", dataset.Mountpoint, aclErr)
+			klog.Errorf("Failed to set ACL on %s: %v (SMB writes will likely fail with Permission denied)", dataset.Mountpoint, aclErr)
 		}
 	}
 
@@ -394,7 +394,7 @@ func (s *ControllerService) setupSMBVolumeFromClone(ctx context.Context, req *cs
 	// Set NFSv4 ACLs AFTER share creation (same as new volumes)
 	if dataset.Mountpoint != "" {
 		if aclErr := s.apiClient.SetFilesystemACL(ctx, dataset.Mountpoint); aclErr != nil {
-			klog.Warningf("Failed to set ACL on cloned dataset %s: %v (SMB writes may fail)", dataset.Mountpoint, aclErr)
+			klog.Errorf("Failed to set ACL on cloned dataset %s: %v (SMB writes will likely fail with Permission denied)", dataset.Mountpoint, aclErr)
 		}
 	}
 
