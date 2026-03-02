@@ -409,9 +409,9 @@ jobs:
         run: |
           mkdir -p /tmp/test-logs
           echo "=== CSI Controller Logs ===" > /tmp/test-logs/controller.log
-          kubectl logs -n kube-system -l app.kubernetes.io/component=controller -c tns-csi-driver --tail=500 >> /tmp/test-logs/controller.log 2>&1 || true
+          kubectl logs -n kube-system -l app.kubernetes.io/component=controller -c tns-csi-plugin --tail=500 >> /tmp/test-logs/controller.log 2>&1 || true
           echo "=== CSI Node Logs ===" > /tmp/test-logs/node.log
-          kubectl logs -n kube-system -l app.kubernetes.io/component=node -c tns-csi-driver --tail=500 >> /tmp/test-logs/node.log 2>&1 || true
+          kubectl logs -n kube-system -l app.kubernetes.io/component=node -c tns-csi-plugin --tail=500 >> /tmp/test-logs/node.log 2>&1 || true
           echo "=== Pod Events ===" > /tmp/test-logs/events.log
           kubectl get events --all-namespaces --sort-by='.lastTimestamp' >> /tmp/test-logs/events.log 2>&1 || true
           echo "=== PVCs ===" >> /tmp/test-logs/events.log
