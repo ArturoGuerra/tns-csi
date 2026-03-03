@@ -92,6 +92,10 @@ var _ = Describe("Reclaim Policy", func() {
 			if proto.id != "nfs" && proto.id != "smb" {
 				params["fsType"] = "ext4"
 			}
+			if proto.id == "smb" {
+				params["csi.storage.k8s.io/node-stage-secret-name"] = "tns-csi-smb-creds"
+				params["csi.storage.k8s.io/node-stage-secret-namespace"] = "kube-system"
+			}
 			err := f.K8s.CreateStorageClassWithReclaimPolicy(ctx, scName, "tns.csi.io", params, corev1.PersistentVolumeReclaimDelete)
 			Expect(err).NotTo(HaveOccurred(), "Failed to create StorageClass")
 			f.Cleanup.Add(func() error {
@@ -167,6 +171,10 @@ var _ = Describe("Reclaim Policy", func() {
 			}
 			if proto.id != "nfs" && proto.id != "smb" {
 				params["fsType"] = "ext4"
+			}
+			if proto.id == "smb" {
+				params["csi.storage.k8s.io/node-stage-secret-name"] = "tns-csi-smb-creds"
+				params["csi.storage.k8s.io/node-stage-secret-namespace"] = "kube-system"
 			}
 			err := f.K8s.CreateStorageClassWithReclaimPolicy(ctx, scName, "tns.csi.io", params, corev1.PersistentVolumeReclaimRetain)
 			Expect(err).NotTo(HaveOccurred(), "Failed to create StorageClass")
