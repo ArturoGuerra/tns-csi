@@ -44,6 +44,7 @@ type ClientInterface interface {
 
 	// SMB share operations
 	CreateSMBShare(ctx context.Context, params SMBShareCreateParams) (*SMBShare, error)
+	UpdateSMBShare(ctx context.Context, shareID int, params SMBShareUpdateParams) (*SMBShare, error)
 	DeleteSMBShare(ctx context.Context, shareID int) error
 	QuerySMBShare(ctx context.Context, path string) ([]SMBShare, error)
 	QuerySMBShareByID(ctx context.Context, shareID int) (*SMBShare, error)

@@ -1145,6 +1145,29 @@ func (c *Client) CreateSMBShare(ctx context.Context, params SMBShareCreateParams
 	return &result, nil
 }
 
+// UpdateSMBShare updates an existing SMB share, triggering TrueNAS to regenerate
+// smb4.conf and reload the SMB service. This is used after creating shares for ZFS
+// clones to work around a TrueNAS issue where the initial config generation during
+// sharing.smb.create can silently exclude shares whose filesystem metadata isn't
+// fully propagated yet.
+func (c *Client) UpdateSMBShare(ctx context.Context, shareID int, params SMBShareUpdateParams) (*SMBShare, error) {
+	klog.V(4).Infof("Updating SMB share %d to force config regeneration", shareID)
+
+	var result SMBShare
+	err := c.Call(ctx, "sharing.smb.update", []interface{}{shareID, params}, &result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update SMB share %d: %w", shareID, err)
+	}
+
+	klog.V(4).Infof("Successfully updated SMB share %d (name: %q)", result.ID, result.Name)
+	return &result, nil
+}
+
+// SMBShareUpdateParams holds parameters for updating an SMB share.
+type SMBShareUpdateParams struct {
+	Comment string `json:"comment,omitempty"`
+}
+
 // DeleteSMBShare deletes an SMB share.
 func (c *Client) DeleteSMBShare(ctx context.Context, shareID int) error {
 	klog.V(4).Infof("Deleting SMB share: %d", shareID)

@@ -430,6 +430,20 @@ func (s *ControllerService) setupSMBVolumeFromClone(ctx context.Context, req *cs
 		}
 	}
 
+	// Force TrueNAS to regenerate smb4.conf by updating the share. During the initial
+	// sharing.smb.create, TrueNAS calls etc.generate('smb') which runs path_get_acltype()
+	// on all share paths. For ZFS clones, the filesystem metadata may not be fully
+	// propagated yet (even after SetFilesystemACL returns), causing the share to be
+	// silently excluded from smb4.conf. This update triggers another etc.generate('smb')
+	// cycle, by which time the metadata is ready.
+	if _, updateErr := s.apiClient.UpdateSMBShare(ctx, smbShare.ID, tnsapi.SMBShareUpdateParams{
+		Comment: "CSI Volume (from clone): " + volumeName,
+	}); updateErr != nil {
+		klog.Warningf("[SMB clone diag] Failed to update share %d to force config regeneration: %v", smbShare.ID, updateErr)
+	} else {
+		klog.Infof("[SMB clone diag] Updated share %d to force smb4.conf regeneration", smbShare.ID)
+	}
+
 	requestedCapacity := req.GetCapacityRange().GetRequiredBytes()
 	if requestedCapacity == 0 {
 		requestedCapacity = 1 * 1024 * 1024 * 1024

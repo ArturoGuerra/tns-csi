@@ -1813,6 +1813,12 @@ func (m *MockClient) ReloadSMBService(ctx context.Context) error {
 	return nil // No-op for mock - always succeeds
 }
 
+// UpdateSMBShare simulates updating an SMB share.
+func (m *MockClient) UpdateSMBShare(_ context.Context, _ int, _ tnsapi.SMBShareUpdateParams) (*tnsapi.SMBShare, error) {
+	m.logCall("UpdateSMBShare")
+	return &tnsapi.SMBShare{}, nil
+}
+
 // Close is a no-op for the mock client.
 func (m *MockClient) Close() {
 	// No-op for mock

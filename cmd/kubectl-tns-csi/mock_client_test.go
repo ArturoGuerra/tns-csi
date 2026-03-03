@@ -513,6 +513,10 @@ func (m *mockClient) ReloadSMBService(_ context.Context) error {
 	return nil
 }
 
+func (m *mockClient) UpdateSMBShare(_ context.Context, _ int, _ tnsapi.SMBShareUpdateParams) (*tnsapi.SMBShare, error) {
+	return &tnsapi.SMBShare{}, nil
+}
+
 // Snapshot operations.
 
 func (m *mockClient) CreateSnapshot(ctx context.Context, params tnsapi.SnapshotCreateParams) (*tnsapi.Snapshot, error) {

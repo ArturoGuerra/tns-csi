@@ -471,6 +471,10 @@ func (m *MockAPIClientForSnapshots) ReloadSMBService(_ context.Context) error {
 	return nil
 }
 
+func (m *MockAPIClientForSnapshots) UpdateSMBShare(_ context.Context, _ int, _ tnsapi.SMBShareUpdateParams) (*tnsapi.SMBShare, error) {
+	return &tnsapi.SMBShare{}, nil
+}
+
 func (m *MockAPIClientForSnapshots) Close() {
 	// Mock client doesn't need cleanup
 }
