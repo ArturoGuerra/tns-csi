@@ -384,12 +384,30 @@ func (s *ControllerService) setupSMBVolumeFromClone(ctx context.Context, req *cs
 	// NOT from the origin snapshot's dataset. The parent typically has acltype=posixacl,
 	// so clones get POSIX1E ACLs which deny access to SMB users (NT_STATUS_ACCESS_DENIED).
 	//
-	// Fix: convert the clone's ACLs from POSIX to NFSv4 before creating the SMB share.
-	// Step 1: Update dataset properties (acltype, aclmode)
-	// Step 2: Set NFSv4 ACEs on the filesystem
-	// Step 3: Wait for any async etc.generate('smb') triggered by dataset update to finish
-	// Step 4: Create the SMB share (triggers its own etc.generate('smb'))
-	// Step 5: Update the share to force a final etc.generate('smb') in case of race
+	// Fix: Create the share as DISABLED first, convert ACLs, then ENABLE the share.
+	// TrueNAS blocks acltype changes on datasets with active (enabled) SMB shares,
+	// but allows them when shares are disabled. The enable step triggers a fresh
+	// etc.generate('smb') + Samba reload AFTER all ACL work is done.
+	//
+	// Step 1: Create SMB share as DISABLED (exists in DB, not in smb4.conf)
+	// Step 2: Update dataset acltype to NFSV4 (allowed because share is disabled)
+	// Step 3: Set NFSv4 ACEs on the filesystem
+	// Step 4: Enable the share (triggers config generation with correct ACLs)
+	smbShare, err := s.apiClient.CreateSMBShare(ctx, tnsapi.SMBShareCreateParams{
+		Name:    volumeName,
+		Path:    dataset.Mountpoint,
+		Comment: "CSI Volume (from snapshot): " + volumeName,
+		Enabled: false, // Created disabled — will be enabled after ACL conversion
+	})
+	if err != nil {
+		klog.Errorf("Failed to create SMB share for cloned dataset, cleaning up: %v", err)
+		if delErr := s.apiClient.DeleteDataset(ctx, dataset.ID); delErr != nil {
+			klog.Errorf("Failed to cleanup cloned dataset after SMB share creation failure: %v", delErr)
+		}
+		return nil, status.Errorf(codes.Internal, "Failed to create SMB share for cloned volume: %v", err)
+	}
+	klog.Infof("SMB clone: created disabled share %q (ID: %d) for %s", smbShare.Name, smbShare.ID, dataset.ID)
+
 	if dataset.Mountpoint != "" {
 		klog.Infof("SMB clone: converting ACLs from POSIX to NFSv4 for %s", dataset.ID)
 
@@ -399,6 +417,9 @@ func (s *ControllerService) setupSMBVolumeFromClone(ctx context.Context, req *cs
 		})
 		if updateErr != nil {
 			klog.Errorf("SMB clone: failed to update ACL properties on %s: %v", dataset.ID, updateErr)
+			if delShareErr := s.apiClient.DeleteSMBShare(ctx, smbShare.ID); delShareErr != nil {
+				klog.Errorf("Failed to cleanup SMB share after ACL update failure: %v", delShareErr)
+			}
 			if delErr := s.apiClient.DeleteDataset(ctx, dataset.ID); delErr != nil {
 				klog.Errorf("Failed to cleanup cloned dataset after ACL update failure: %v", delErr)
 			}
@@ -411,42 +432,26 @@ func (s *ControllerService) setupSMBVolumeFromClone(ctx context.Context, req *cs
 		}
 
 		// Verify the conversion worked.
-		if acltype, err := s.apiClient.GetFilesystemACL(ctx, dataset.Mountpoint); err != nil {
-			klog.Warningf("SMB clone: failed to verify ACL type for %s: %v", dataset.Mountpoint, err)
+		if acltype, verifyErr := s.apiClient.GetFilesystemACL(ctx, dataset.Mountpoint); verifyErr != nil {
+			klog.Warningf("SMB clone: failed to verify ACL type for %s: %v", dataset.Mountpoint, verifyErr)
 		} else {
 			klog.Infof("SMB clone: verified ACL type after conversion: acltype=%s for %s", acltype, dataset.Mountpoint)
 		}
-
-		// Wait for any async etc.generate('smb') triggered by pool.dataset.update to complete.
-		// The dataset update (acltype change) can trigger an async Samba config regeneration
-		// that races with the share creation below. If that async regeneration finishes AFTER
-		// sharing.smb.create, it overwrites smb4.conf without the new share.
-		klog.Infof("SMB clone: waiting 3s for async config generation to settle after ACL conversion")
-		time.Sleep(3 * time.Second)
 	}
 
-	smbShare, err := s.apiClient.CreateSMBShare(ctx, tnsapi.SMBShareCreateParams{
-		Name:    volumeName,
-		Path:    dataset.Mountpoint,
-		Comment: "CSI Volume (from snapshot): " + volumeName,
-		Enabled: true,
+	// Enable the share — this triggers etc.generate('smb') and Samba reload
+	// AFTER all ACL work is done, ensuring the share is in smb4.conf with correct config.
+	enableTrue := true
+	klog.Infof("SMB clone: enabling share %q (ID: %d) after ACL conversion", smbShare.Name, smbShare.ID)
+	updatedShare, updateErr := s.apiClient.UpdateSMBShare(ctx, smbShare.ID, tnsapi.SMBShareUpdateParams{
+		Enabled: &enableTrue,
 	})
-	if err != nil {
-		klog.Errorf("Failed to create SMB share for cloned dataset, cleaning up: %v", err)
-		if delErr := s.apiClient.DeleteDataset(ctx, dataset.ID); delErr != nil {
-			klog.Errorf("Failed to cleanup cloned dataset after SMB share creation failure: %v", delErr)
-		}
-		return nil, status.Errorf(codes.Internal, "Failed to create SMB share for cloned volume: %v", err)
-	}
-
-	// Force a final etc.generate('smb') by updating the share. This guarantees the
-	// clone share is in smb4.conf even if the async config generation from the earlier
-	// pool.dataset.update overwrote the config produced by sharing.smb.create.
-	klog.Infof("SMB clone: forcing config regeneration via share update for %s (shareID: %d)", volumeName, smbShare.ID)
-	if _, updateErr := s.apiClient.UpdateSMBShare(ctx, smbShare.ID, tnsapi.SMBShareUpdateParams{
-		Comment: smbShare.Comment,
-	}); updateErr != nil {
-		klog.Warningf("SMB clone: share update for config regeneration failed: %v (mount may still succeed)", updateErr)
+	if updateErr != nil {
+		klog.Errorf("SMB clone: failed to enable share %d: %v", smbShare.ID, updateErr)
+		// Share is disabled but exists — try to enable it anyway for cleanup
+	} else {
+		smbShare = updatedShare
+		klog.Infof("SMB clone: share %q (ID: %d) enabled successfully", smbShare.Name, smbShare.ID)
 	}
 
 	requestedCapacity := req.GetCapacityRange().GetRequiredBytes()

@@ -1165,6 +1165,7 @@ func (c *Client) UpdateSMBShare(ctx context.Context, shareID int, params SMBShar
 
 // SMBShareUpdateParams holds parameters for updating an SMB share.
 type SMBShareUpdateParams struct {
+	Enabled *bool  `json:"enabled,omitempty"`
 	Comment string `json:"comment,omitempty"`
 }
 
