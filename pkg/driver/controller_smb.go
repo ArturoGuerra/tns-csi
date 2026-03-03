@@ -439,8 +439,8 @@ func (s *ControllerService) setupSMBVolumeFromClone(ctx context.Context, req *cs
 		}
 	}
 
-	// Enable the share — this triggers etc.generate('smb') and Samba reload
-	// AFTER all ACL work is done, ensuring the share is in smb4.conf with correct config.
+	// Enable the share — this updates the DB and may trigger etc.generate('smb'),
+	// but the Samba config regeneration is not guaranteed to be synchronous.
 	enableTrue := true
 	klog.Infof("SMB clone: enabling share %q (ID: %d) after ACL conversion", smbShare.Name, smbShare.ID)
 	updatedShare, updateErr := s.apiClient.UpdateSMBShare(ctx, smbShare.ID, tnsapi.SMBShareUpdateParams{
@@ -452,6 +452,15 @@ func (s *ControllerService) setupSMBVolumeFromClone(ctx context.Context, req *cs
 	} else {
 		smbShare = updatedShare
 		klog.Infof("SMB clone: share %q (ID: %d) enabled successfully", smbShare.Name, smbShare.ID)
+	}
+
+	// Explicitly reload the SMB service to guarantee smb4.conf regeneration.
+	// sharing.smb.update may not reliably trigger etc.generate('smb') synchronously,
+	// and without this the share can be permanently missing from Samba's running config.
+	if reloadErr := s.apiClient.ReloadSMBService(ctx); reloadErr != nil {
+		klog.Warningf("SMB clone: failed to reload SMB service after enabling share: %v (mount may fail)", reloadErr)
+	} else {
+		klog.Infof("SMB clone: SMB service reloaded after enabling share %q", smbShare.Name)
 	}
 
 	requestedCapacity := req.GetCapacityRange().GetRequiredBytes()
