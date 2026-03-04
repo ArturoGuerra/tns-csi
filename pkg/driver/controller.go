@@ -397,25 +397,39 @@ func (s *ControllerService) lookupSnapshotByCSIName(ctx context.Context, poolDat
 // When CSI-managed snapshots exist, DeleteVolume should return FAILED_PRECONDITION
 // so Kubernetes retries until the snapshots are explicitly removed via DeleteSnapshot.
 // This matches democratic-csi's behavior of blocking deletion when managed snapshots exist.
+//
+// Uses extra.properties with only the single property we need (tns-csi:managed_by),
+// which is dramatically faster than extra.user_properties (all properties).
+// This matches democratic-csi's approach: they fetch each snapshot's managed property individually.
 func (s *ControllerService) datasetHasCSIManagedSnapshots(_ context.Context, datasetID string) (bool, error) {
-	// Use background context with generous timeout — the parent gRPC context often has a
-	// shorter deadline (10-15s from CSI sidecars) which caused this check to always time out.
-	// This query is critical for VolSync correctness: it must complete reliably.
+	// Use background context — parent gRPC context deadline is too short for reliable checks.
 	snapCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	filters := []interface{}{
 		[]interface{}{"dataset", "=", datasetID},
 	}
-	snapshots, err := s.apiClient.QuerySnapshotsWithUserProperties(snapCtx, filters) //nolint:contextcheck // intentional: parent gRPC context deadline is too short for this critical check
+
+	// Query snapshots with only the managed_by property — much faster than fetching all user properties
+	snapshots, err := s.apiClient.QuerySnapshotsWithProperties(snapCtx, filters, []string{tnsapi.PropertyManagedBy}) //nolint:contextcheck // intentional: parent gRPC context deadline is too short
 	if err != nil {
-		return false, fmt.Errorf("failed to query snapshots with properties for %s: %w", datasetID, err)
+		return false, fmt.Errorf("failed to query snapshots for %s: %w", datasetID, err)
+	}
+
+	if len(snapshots) == 0 {
+		klog.V(4).Infof("No snapshots on dataset %s", datasetID)
+		return false, nil
 	}
 
 	for _, snap := range snapshots {
-		if prop, ok := snap.UserProperties[tnsapi.PropertyManagedBy]; ok && prop.Value == tnsapi.ManagedByValue {
-			klog.Infof("Dataset %s has CSI-managed snapshot: %s", datasetID, snap.ID)
-			return true, nil
+		if propData, ok := snap.Properties[tnsapi.PropertyManagedBy]; ok {
+			// extra.properties returns {"tns-csi:managed_by": {"value": "tns-csi", ...}}
+			if propMap, ok := propData.(map[string]interface{}); ok {
+				if val, ok := propMap["value"].(string); ok && val == tnsapi.ManagedByValue {
+					klog.Infof("Dataset %s has CSI-managed snapshot: %s", datasetID, snap.ID)
+					return true, nil
+				}
+			}
 		}
 	}
 	return false, nil
@@ -436,11 +450,12 @@ func (s *ControllerService) deleteDatasetSnapshots(_ context.Context, datasetID 
 	snapCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Query snapshots with properties so we can skip CSI-managed ones
 	filters := []interface{}{
 		[]interface{}{"dataset", "=", datasetID},
 	}
-	snapshots, err := s.apiClient.QuerySnapshotsWithUserProperties(snapCtx, filters) //nolint:contextcheck // intentional: background context needed for reliable cleanup
+
+	// Query snapshots with only the managed_by property — fast targeted query
+	snapshots, err := s.apiClient.QuerySnapshotsWithProperties(snapCtx, filters, []string{tnsapi.PropertyManagedBy}) //nolint:contextcheck // intentional: background context needed for reliable cleanup
 	if err != nil {
 		klog.Warningf("Failed to query snapshots for dataset %s: %v (skipping snapshot cleanup)", datasetID, err)
 		return
@@ -453,9 +468,13 @@ func (s *ControllerService) deleteDatasetSnapshots(_ context.Context, datasetID 
 
 	for _, snap := range snapshots {
 		// Skip CSI-managed snapshots — they must be deleted via DeleteSnapshot by their owner (e.g., VolSync)
-		if prop, ok := snap.UserProperties[tnsapi.PropertyManagedBy]; ok && prop.Value == tnsapi.ManagedByValue {
-			klog.Infof("Skipping CSI-managed snapshot %s (will be deleted via DeleteSnapshot)", snap.ID)
-			continue
+		if propData, ok := snap.Properties[tnsapi.PropertyManagedBy]; ok {
+			if propMap, ok := propData.(map[string]interface{}); ok {
+				if val, ok := propMap["value"].(string); ok && val == tnsapi.ManagedByValue {
+					klog.Infof("Skipping CSI-managed snapshot %s (will be deleted via DeleteSnapshot)", snap.ID)
+					continue
+				}
+			}
 		}
 		klog.V(4).Infof("Deleting non-CSI snapshot %s (defer=true to handle dependent clones)", snap.ID)
 		if err := s.apiClient.DeleteSnapshot(snapCtx, snap.ID); err != nil { //nolint:contextcheck // intentional: background context needed for reliable cleanup

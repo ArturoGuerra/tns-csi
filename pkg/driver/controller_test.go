@@ -203,6 +203,10 @@ func (m *mockAPIClient) QuerySnapshotsWithUserProperties(ctx context.Context, fi
 	return nil, nil
 }
 
+func (m *mockAPIClient) QuerySnapshotsWithProperties(ctx context.Context, filters []interface{}, propertyNames []string) ([]tnsapi.Snapshot, error) {
+	return nil, nil
+}
+
 func (m *mockAPIClient) QuerySnapshotIDs(ctx context.Context, filters []interface{}) ([]string, error) {
 	return nil, nil
 }

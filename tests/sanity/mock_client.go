@@ -1083,6 +1083,13 @@ func (m *MockClient) QuerySnapshotsWithUserProperties(ctx context.Context, filte
 	return []tnsapi.SnapshotWithUserProperties{}, nil
 }
 
+// QuerySnapshotsWithProperties mocks pool.snapshot.query with targeted extra.properties.
+// Returns empty results — sanity tests don't create CSI-managed snapshots that would block deletion.
+func (m *MockClient) QuerySnapshotsWithProperties(ctx context.Context, filters []any, propertyNames []string) ([]tnsapi.Snapshot, error) {
+	m.logCall("QuerySnapshotsWithProperties", filters, propertyNames)
+	return []tnsapi.Snapshot{}, nil
+}
+
 // QuerySnapshotIDs mocks zfs.snapshot.query with select: ["id"].
 // Returns only snapshot IDs to minimize response size.
 func (m *MockClient) QuerySnapshotIDs(ctx context.Context, filters []any) ([]string, error) {

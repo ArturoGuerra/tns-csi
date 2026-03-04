@@ -104,6 +104,7 @@ type ClientInterface interface {
 	DeleteSnapshot(ctx context.Context, snapshotID string) error
 	QuerySnapshots(ctx context.Context, filters []interface{}) ([]Snapshot, error)
 	QuerySnapshotsWithUserProperties(ctx context.Context, filters []interface{}) ([]SnapshotWithUserProperties, error)
+	QuerySnapshotsWithProperties(ctx context.Context, filters []interface{}, propertyNames []string) ([]Snapshot, error)
 	QuerySnapshotIDs(ctx context.Context, filters []interface{}) ([]string, error)
 	CloneSnapshot(ctx context.Context, params CloneSnapshotParams) (*Dataset, error)
 

@@ -552,6 +552,10 @@ func (m *mockClient) QuerySnapshotsWithUserProperties(ctx context.Context, filte
 	return nil, errNotImplemented
 }
 
+func (m *mockClient) QuerySnapshotsWithProperties(ctx context.Context, filters []interface{}, propertyNames []string) ([]tnsapi.Snapshot, error) {
+	return nil, errNotImplemented
+}
+
 func (m *mockClient) QuerySnapshotIDs(ctx context.Context, filters []interface{}) ([]string, error) {
 	if m.QuerySnapshotIDsFunc != nil {
 		return m.QuerySnapshotIDsFunc(ctx, filters)

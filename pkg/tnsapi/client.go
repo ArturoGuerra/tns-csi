@@ -1943,6 +1943,28 @@ func (c *Client) QuerySnapshotsWithUserProperties(ctx context.Context, filters [
 	return result, nil
 }
 
+// QuerySnapshotsWithProperties queries snapshots and returns only the specified ZFS properties.
+// This uses extra.properties (a targeted property list) instead of extra.user_properties (all properties),
+// which is significantly faster on systems with many snapshots.
+// The response uses the standard "properties" field where each property has a "value" sub-field.
+func (c *Client) QuerySnapshotsWithProperties(ctx context.Context, filters []interface{}, propertyNames []string) ([]Snapshot, error) {
+	klog.V(4).Infof("Querying snapshots with specific properties %v, filters: %+v", propertyNames, filters)
+
+	queryOpts := map[string]interface{}{
+		"extra": map[string]interface{}{
+			"properties": propertyNames,
+		},
+	}
+	var result []Snapshot
+	err := c.Call(ctx, "pool.snapshot.query", []interface{}{filters, queryOpts}, &result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query snapshots with properties: %w", err)
+	}
+
+	klog.V(4).Infof("Found %d snapshots", len(result))
+	return result, nil
+}
+
 // QuerySnapshotIDs is a lightweight version of QuerySnapshots that only returns snapshot IDs.
 // It uses select: ["id"] to minimize response size, which is critical when datasets have
 // many snapshots with large property sets (e.g., after migration from democratic-csi).
