@@ -962,8 +962,10 @@ func (c *Client) CreateDataset(ctx context.Context, params DatasetCreateParams) 
 func (c *Client) DeleteDataset(ctx context.Context, datasetID string) error {
 	klog.Infof("DeleteDataset: Starting deletion of dataset %s", datasetID)
 
-	// Use recursive and force flags to ensure dataset is deleted even if it has snapshots or children
-	// This prevents orphaned datasets when volumes are deleted after creating snapshots
+	// Recursive delete removes the dataset and all child snapshots atomically.
+	// This is safe because the caller's guard (datasetHasCSIManagedSnapshots) already
+	// verified no CSI-managed snapshots exist before reaching this point.
+	// Matches democratic-csi's approach: guard first, then recursive delete.
 	var result bool
 	params := []interface{}{
 		datasetID,

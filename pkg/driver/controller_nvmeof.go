@@ -756,7 +756,10 @@ func (s *ControllerService) deleteNVMeOFVolume(ctx context.Context, meta *Volume
 	if meta.DatasetID != "" {
 		hasCSISnaps, err := s.datasetHasCSIManagedSnapshots(ctx, meta.DatasetID)
 		if err != nil {
-			klog.Warningf("Failed to check for CSI snapshots on %s: %v (continuing with deletion)", meta.DatasetID, err)
+			// Hard-fail: with recursive delete, we must not proceed if the guard can't verify safety
+			timer.ObserveError()
+			return nil, status.Errorf(codes.FailedPrecondition,
+				"cannot verify snapshot state for %s: %v; will retry", meta.DatasetID, err)
 		} else if hasCSISnaps {
 			timer.ObserveError()
 			return nil, status.Errorf(codes.FailedPrecondition,
