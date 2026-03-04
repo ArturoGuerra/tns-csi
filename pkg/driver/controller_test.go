@@ -69,8 +69,9 @@ func requireNotNilController(t *testing.T, v any, msg string) {
 
 // mockAPIClient is a mock implementation of APIClient for testing.
 type mockAPIClient struct {
-	queryPoolFunc     func(ctx context.Context, poolName string) (*tnsapi.Pool, error)
-	updateDatasetFunc func(ctx context.Context, datasetID string, params tnsapi.DatasetUpdateParams) (*tnsapi.Dataset, error)
+	queryPoolFunc                func(ctx context.Context, poolName string) (*tnsapi.Pool, error)
+	updateDatasetFunc            func(ctx context.Context, datasetID string, params tnsapi.DatasetUpdateParams) (*tnsapi.Dataset, error)
+	getDatasetWithPropertiesFunc func(ctx context.Context, datasetID string) (*tnsapi.DatasetWithProperties, error)
 }
 
 var errNotImplemented = errors.New("mock method not implemented")
@@ -287,6 +288,9 @@ func (m *mockAPIClient) RunOnetimeReplicationAndWait(ctx context.Context, params
 }
 
 func (m *mockAPIClient) GetDatasetWithProperties(ctx context.Context, datasetID string) (*tnsapi.DatasetWithProperties, error) {
+	if m.getDatasetWithPropertiesFunc != nil {
+		return m.getDatasetWithPropertiesFunc(ctx, datasetID)
+	}
 	return nil, nil //nolint:nilnil // Stub implementation - returns "not found"
 }
 
@@ -2764,5 +2768,188 @@ func TestCheckAndAdoptVolume_NoVolumeFound(t *testing.T) {
 	}
 	if resp != nil {
 		t.Fatal("checkAndAdoptVolume() expected nil response when no volume found")
+	}
+}
+
+func TestIsMultiNodeMode(t *testing.T) {
+	tests := []struct {
+		mode csi.VolumeCapability_AccessMode_Mode
+		want bool
+	}{
+		{csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER, false},
+		{csi.VolumeCapability_AccessMode_SINGLE_NODE_READER_ONLY, false},
+		{csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY, true},
+		{csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER, true},
+		{csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.mode.String(), func(t *testing.T) {
+			if got := isMultiNodeMode(tt.mode); got != tt.want {
+				t.Errorf("isMultiNodeMode(%v) = %v, want %v", tt.mode, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateAccessModeForProtocol(t *testing.T) {
+	blockCap := func(mode csi.VolumeCapability_AccessMode_Mode) *csi.VolumeCapability {
+		return &csi.VolumeCapability{
+			AccessType: &csi.VolumeCapability_Block{Block: &csi.VolumeCapability_BlockVolume{}},
+			AccessMode: &csi.VolumeCapability_AccessMode{Mode: mode},
+		}
+	}
+	mountCap := func(mode csi.VolumeCapability_AccessMode_Mode) *csi.VolumeCapability {
+		return &csi.VolumeCapability{
+			AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+			AccessMode: &csi.VolumeCapability_AccessMode{Mode: mode},
+		}
+	}
+
+	tests := []struct {
+		name     string
+		protocol string
+		caps     []*csi.VolumeCapability
+		wantErr  bool
+	}{
+		// Block protocols + multi-node + block mode → allowed (KubeVirt live migration)
+		{name: "nvmeof block MULTI_NODE_MULTI_WRITER", caps: []*csi.VolumeCapability{blockCap(csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER)}, protocol: ProtocolNVMeOF},
+		{name: "iscsi block MULTI_NODE_MULTI_WRITER", caps: []*csi.VolumeCapability{blockCap(csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER)}, protocol: ProtocolISCSI},
+		{name: "nvmeof block MULTI_NODE_SINGLE_WRITER", caps: []*csi.VolumeCapability{blockCap(csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER)}, protocol: ProtocolNVMeOF},
+		{name: "iscsi block MULTI_NODE_SINGLE_WRITER", caps: []*csi.VolumeCapability{blockCap(csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER)}, protocol: ProtocolISCSI},
+		{name: "nvmeof block MULTI_NODE_READER_ONLY", caps: []*csi.VolumeCapability{blockCap(csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY)}, protocol: ProtocolNVMeOF},
+		{name: "iscsi block MULTI_NODE_READER_ONLY", caps: []*csi.VolumeCapability{blockCap(csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY)}, protocol: ProtocolISCSI},
+
+		// Block protocols + multi-node + mount mode → rejected (filesystem corruption)
+		{name: "nvmeof mount MULTI_NODE_MULTI_WRITER", caps: []*csi.VolumeCapability{mountCap(csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER)}, protocol: ProtocolNVMeOF, wantErr: true},
+		{name: "iscsi mount MULTI_NODE_MULTI_WRITER", caps: []*csi.VolumeCapability{mountCap(csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER)}, protocol: ProtocolISCSI, wantErr: true},
+		{name: "nvmeof mount MULTI_NODE_SINGLE_WRITER", caps: []*csi.VolumeCapability{mountCap(csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER)}, protocol: ProtocolNVMeOF, wantErr: true},
+		{name: "iscsi mount MULTI_NODE_SINGLE_WRITER", caps: []*csi.VolumeCapability{mountCap(csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER)}, protocol: ProtocolISCSI, wantErr: true},
+		{name: "nvmeof mount MULTI_NODE_READER_ONLY", caps: []*csi.VolumeCapability{mountCap(csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY)}, protocol: ProtocolNVMeOF, wantErr: true},
+		{name: "iscsi mount MULTI_NODE_READER_ONLY", caps: []*csi.VolumeCapability{mountCap(csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY)}, protocol: ProtocolISCSI, wantErr: true},
+
+		// File protocols + multi-node → always allowed
+		{name: "nfs mount MULTI_NODE_MULTI_WRITER", caps: []*csi.VolumeCapability{mountCap(csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER)}, protocol: ProtocolNFS},
+		{name: "smb mount MULTI_NODE_MULTI_WRITER", caps: []*csi.VolumeCapability{mountCap(csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER)}, protocol: ProtocolSMB},
+		{name: "nfs mount MULTI_NODE_SINGLE_WRITER", caps: []*csi.VolumeCapability{mountCap(csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER)}, protocol: ProtocolNFS},
+		{name: "smb mount MULTI_NODE_READER_ONLY", caps: []*csi.VolumeCapability{mountCap(csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY)}, protocol: ProtocolSMB},
+
+		// Single-node modes → always allowed regardless of protocol or access type
+		{name: "nvmeof mount SINGLE_NODE_WRITER", caps: []*csi.VolumeCapability{mountCap(csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER)}, protocol: ProtocolNVMeOF},
+		{name: "iscsi block SINGLE_NODE_WRITER", caps: []*csi.VolumeCapability{blockCap(csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER)}, protocol: ProtocolISCSI},
+		{name: "nfs mount SINGLE_NODE_WRITER", caps: []*csi.VolumeCapability{mountCap(csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER)}, protocol: ProtocolNFS},
+
+		// Multiple capabilities: one bad cap fails the whole request
+		{
+			name: "nvmeof mixed caps one invalid",
+			caps: []*csi.VolumeCapability{
+				blockCap(csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER),
+				mountCap(csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER),
+			},
+			protocol: ProtocolNVMeOF, wantErr: true,
+		},
+		// Multiple capabilities: all valid
+		{
+			name: "nvmeof mixed caps all valid",
+			caps: []*csi.VolumeCapability{
+				blockCap(csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER),
+				blockCap(csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER),
+			},
+			protocol: ProtocolNVMeOF,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateAccessModeForProtocol(tt.caps, tt.protocol)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateAccessModeForProtocol() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr && err != nil {
+				st, ok := status.FromError(err)
+				if !ok || st.Code() != codes.InvalidArgument {
+					t.Errorf("expected InvalidArgument code, got %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestValidateVolumeCapabilities_ProtocolAware(t *testing.T) {
+	// Test that ValidateVolumeCapabilities uses protocol-aware validation
+	tests := []struct {
+		cap           *csi.VolumeCapability
+		name          string
+		volumeID      string // dataset path format
+		protocol      string
+		wantConfirmed bool
+	}{
+		{
+			name:     "nvmeof block RWX confirmed",
+			volumeID: "tank/vols/pvc-block-rwx",
+			protocol: ProtocolNVMeOF,
+			cap: &csi.VolumeCapability{
+				AccessType: &csi.VolumeCapability_Block{Block: &csi.VolumeCapability_BlockVolume{}},
+				AccessMode: &csi.VolumeCapability_AccessMode{Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER},
+			},
+			wantConfirmed: true,
+		},
+		{
+			name:     "nvmeof mount RWX not confirmed",
+			volumeID: "tank/vols/pvc-mount-rwx",
+			protocol: ProtocolNVMeOF,
+			cap: &csi.VolumeCapability{
+				AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+				AccessMode: &csi.VolumeCapability_AccessMode{Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER},
+			},
+			wantConfirmed: false,
+		},
+		{
+			name:     "nfs mount RWX confirmed",
+			volumeID: "tank/vols/pvc-nfs-rwx",
+			protocol: ProtocolNFS,
+			cap: &csi.VolumeCapability{
+				AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+				AccessMode: &csi.VolumeCapability_AccessMode{Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER},
+			},
+			wantConfirmed: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockAPIClient{
+				getDatasetWithPropertiesFunc: func(_ context.Context, id string) (*tnsapi.DatasetWithProperties, error) {
+					if id == tt.volumeID {
+						return &tnsapi.DatasetWithProperties{
+							Dataset: tnsapi.Dataset{ID: tt.volumeID, Name: tt.volumeID},
+							UserProperties: map[string]tnsapi.UserProperty{
+								tnsapi.PropertyManagedBy: {Value: "tns-csi"},
+								tnsapi.PropertyProtocol:  {Value: tt.protocol},
+							},
+						}, nil
+					}
+					return nil, errors.New("not found")
+				},
+			}
+
+			service := NewControllerService(mock, NewNodeRegistry())
+			resp, err := service.ValidateVolumeCapabilities(context.Background(), &csi.ValidateVolumeCapabilitiesRequest{
+				VolumeId:           tt.volumeID,
+				VolumeCapabilities: []*csi.VolumeCapability{tt.cap},
+			})
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.wantConfirmed && resp.Confirmed == nil {
+				t.Errorf("expected Confirmed to be set, got nil. Message: %s", resp.Message)
+			}
+			if !tt.wantConfirmed && resp.Confirmed != nil {
+				t.Error("expected Confirmed to be nil for unsafe combination")
+			}
+			if !tt.wantConfirmed && resp.Message == "" {
+				t.Error("expected Message to explain why capabilities were not confirmed")
+			}
+		})
 	}
 }

@@ -493,6 +493,11 @@ func (s *ControllerService) CreateVolume(ctx context.Context, req *csi.CreateVol
 		protocol = ProtocolNFS
 	}
 
+	// Validate access modes are safe for this protocol
+	if err := validateAccessModeForProtocol(req.GetVolumeCapabilities(), protocol); err != nil {
+		return nil, err
+	}
+
 	// Check for idempotency: if volume with same name already exists
 	existingVolume, err := s.checkExistingVolume(ctx, req, params, protocol)
 	if err != nil && !errors.Is(err, ErrVolumeNotFound) {
@@ -558,6 +563,41 @@ func validateCreateVolumeRequest(req *csi.CreateVolumeRequest) error {
 		}
 	}
 
+	return nil
+}
+
+// isMultiNodeMode returns true if the access mode allows multiple nodes to access the volume.
+func isMultiNodeMode(mode csi.VolumeCapability_AccessMode_Mode) bool {
+	switch mode {
+	case csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY,
+		csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER,
+		csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER:
+		return true
+	default:
+		return false
+	}
+}
+
+// validateAccessModeForProtocol checks that the requested volume capabilities are safe
+// for the given protocol. Block protocols (NVMe-oF, iSCSI) support multi-node access
+// only in raw block mode (e.g., KubeVirt live migration). Multi-node with a mounted
+// filesystem on block protocols would corrupt ext4/xfs. File protocols (NFS, SMB)
+// handle multi-node access natively.
+func validateAccessModeForProtocol(caps []*csi.VolumeCapability, protocol string) error {
+	for _, cap := range caps {
+		if !isMultiNodeMode(cap.GetAccessMode().GetMode()) {
+			continue
+		}
+		// Multi-node requested — block protocols only allow raw block mode
+		if protocol == ProtocolNVMeOF || protocol == ProtocolISCSI {
+			if cap.GetMount() != nil {
+				return status.Errorf(codes.InvalidArgument,
+					"multi-node access mode %s with mounted filesystem is not supported for %s — "+
+						"use volumeMode: Block for multi-node block storage (e.g., KubeVirt live migration)",
+					cap.GetAccessMode().GetMode(), protocol)
+			}
+		}
+	}
 	return nil
 }
 
@@ -1080,28 +1120,37 @@ func (s *ControllerService) ValidateVolumeCapabilities(ctx context.Context, req 
 	volumeID := req.GetVolumeId()
 	klog.V(4).Infof("ValidateVolumeCapabilities: validating volume %s", volumeID)
 
-	// Check if volume exists by querying TrueNAS
-	volumeExists := false
+	// Look up the volume and determine its protocol
+	var protocol string
 
 	if isDatasetPathVolumeID(volumeID) {
 		// New format: volume ID is the dataset path, query directly (O(1))
 		dataset, err := s.apiClient.GetDatasetWithProperties(ctx, volumeID)
-		if err == nil && dataset != nil {
-			volumeExists = true
+		if err != nil || dataset == nil {
+			return nil, status.Errorf(codes.NotFound, "Volume %s not found", volumeID)
+		}
+		if p, ok := dataset.UserProperties[tnsapi.PropertyProtocol]; ok {
+			protocol = p.Value
 		}
 	} else {
 		// Legacy format: plain volume name — use property-based lookup
 		meta, err := s.lookupVolumeByCSIName(ctx, "", volumeID)
-		if err == nil && meta != nil {
-			volumeExists = true
+		if err != nil || meta == nil {
+			return nil, status.Errorf(codes.NotFound, "Volume %s not found", volumeID)
+		}
+		protocol = meta.Protocol
+	}
+
+	// Validate capabilities against the volume's protocol
+	if protocol != "" {
+		if err := validateAccessModeForProtocol(req.GetVolumeCapabilities(), protocol); err != nil {
+			// Per CSI spec: return Confirmed: nil with a message (not an error)
+			return &csi.ValidateVolumeCapabilitiesResponse{
+				Message: fmt.Sprintf("capabilities not confirmed: %v", err),
+			}, nil
 		}
 	}
 
-	if !volumeExists {
-		return nil, status.Errorf(codes.NotFound, "Volume %s not found", volumeID)
-	}
-
-	// Basic validation: we accept all requested capabilities since TrueNAS supports both filesystem and block modes
 	return &csi.ValidateVolumeCapabilitiesResponse{
 		Confirmed: &csi.ValidateVolumeCapabilitiesResponse_Confirmed{
 			VolumeCapabilities: req.GetVolumeCapabilities(),
