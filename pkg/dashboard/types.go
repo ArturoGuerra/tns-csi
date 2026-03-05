@@ -112,6 +112,7 @@ type VolumeHealth struct {
 	ShareOK    *bool        `json:"shareOk,omitempty"    yaml:"shareOk,omitempty"`
 	SubsysOK   *bool        `json:"subsysOk,omitempty"   yaml:"subsysOk,omitempty"`
 	SMBShareOK *bool        `json:"smbShareOk,omitempty" yaml:"smbShareOk,omitempty"`
+	TargetOK   *bool        `json:"targetOk,omitempty"   yaml:"targetOk,omitempty"`
 	DatasetOK  bool         `json:"datasetOk"            yaml:"datasetOk"`
 }
 
@@ -172,6 +173,7 @@ type VolumeDetails struct {
 	NFSShare          *NFSShareDetails        `json:"nfsShare,omitempty"          yaml:"nfsShare,omitempty"`
 	NVMeOFSubsystem   *NVMeOFSubsystemDetails `json:"nvmeofSubsystem,omitempty"   yaml:"nvmeofSubsystem,omitempty"`
 	SMBShare          *SMBShareDetails        `json:"smbShare,omitempty"          yaml:"smbShare,omitempty"`
+	ISCSITarget       *ISCSITargetDetails     `json:"iscsiTarget,omitempty"       yaml:"iscsiTarget,omitempty"`
 	Properties        map[string]string       `json:"properties"                  yaml:"properties"`
 }
 
@@ -206,6 +208,15 @@ type SMBShareDetails struct {
 	Enabled bool   `json:"enabled" yaml:"enabled"`
 }
 
+// ISCSITargetDetails contains iSCSI target information.
+//
+//nolint:govet // field alignment not critical for display struct
+type ISCSITargetDetails struct {
+	ID   int    `json:"id"   yaml:"id"`
+	Name string `json:"name" yaml:"name"`
+	IQN  string `json:"iqn"  yaml:"iqn"`
+}
+
 // MetricsSummary contains parsed metrics for dashboard display.
 //
 //nolint:govet // field alignment not critical for display struct
@@ -219,6 +230,7 @@ type MetricsSummary struct {
 	NFSOperations          int64   `json:"nfsOperations"`
 	NVMeOFOperations       int64   `json:"nvmeofOperations"`
 	ISCSIOperations        int64   `json:"iscsiOperations"`
+	SMBOperations          int64   `json:"smbOperations"`
 	CreateOperations       int64   `json:"createOperations"`
 	DeleteOperations       int64   `json:"deleteOperations"`
 	ExpandOperations       int64   `json:"expandOperations"`

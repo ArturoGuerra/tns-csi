@@ -208,6 +208,14 @@ func outputVolumeDetailsTable(details *VolumeDetails) error {
 		fmt.Println()
 	}
 
+	if details.ISCSITarget != nil {
+		colorHeader.Println("=== iSCSI Target ===") //nolint:errcheck,gosec
+		describeKV("Target ID", strconv.Itoa(details.ISCSITarget.ID))
+		describeKV("Name", details.ISCSITarget.Name)
+		describeKV("IQN", details.ISCSITarget.IQN)
+		fmt.Println()
+	}
+
 	// All properties
 	colorHeader.Println("=== ZFS Properties ===") //nolint:errcheck,gosec
 

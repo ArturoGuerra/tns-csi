@@ -250,6 +250,8 @@ func runTroubleshoot(ctx context.Context, pvcName, namespace string, url, apiKey
 		checkNVMeOFResourcesForTroubleshoot(ctx, client, dataset, result)
 	case protocolSMB:
 		checkSMBResourcesForTroubleshoot(ctx, client, dataset, result)
+	case protocolISCSI:
+		checkISCSIResourcesForTroubleshoot(ctx, client, dataset, result)
 	default:
 		result.Checks = append(result.Checks, TroubleshootCheck{
 			Name:    "Protocol Check",
@@ -487,6 +489,99 @@ func checkSMBResourcesForTroubleshoot(ctx context.Context, client tnsapi.ClientI
 		Name:    "SMB Share",
 		Status:  statusOK,
 		Message: fmt.Sprintf("SMB share found and enabled (ID: %d, Name: %s)", share.ID, share.Name),
+	})
+}
+
+// checkISCSIResourcesForTroubleshoot checks iSCSI-specific resources on TrueNAS.
+func checkISCSIResourcesForTroubleshoot(ctx context.Context, client tnsapi.ClientInterface, dataset *tnsapi.DatasetWithProperties, result *TroubleshootResult) {
+	iqn := ""
+	if prop, ok := dataset.UserProperties[tnsapi.PropertyISCSIIQN]; ok {
+		iqn = prop.Value
+	}
+
+	if iqn == "" {
+		result.Checks = append(result.Checks, TroubleshootCheck{
+			Name:    "iSCSI IQN",
+			Status:  statusWarning,
+			Message: "No IQN found in volume properties",
+		})
+		return
+	}
+
+	// Look up target by volume name
+	targetName := ""
+	if prop, ok := dataset.UserProperties[tnsapi.PropertyCSIVolumeName]; ok {
+		targetName = prop.Value
+	}
+
+	target, err := client.ISCSITargetByName(ctx, targetName)
+	if err != nil || target == nil {
+		result.Checks = append(result.Checks, TroubleshootCheck{
+			Name:    "iSCSI Target",
+			Status:  statusError,
+			Message: "iSCSI target not found: " + targetName,
+		})
+		result.Suggestions = append(result.Suggestions, "iSCSI target may have been deleted - delete/recreate the PVC")
+		return
+	}
+
+	result.Checks = append(result.Checks, TroubleshootCheck{
+		Name:    "iSCSI Target",
+		Status:  statusOK,
+		Message: fmt.Sprintf("iSCSI target found (ID: %d, IQN: %s)", target.ID, iqn),
+	})
+
+	// Check extent
+	if prop, ok := dataset.UserProperties[tnsapi.PropertyISCSIExtentID]; ok && prop.Value != "" {
+		extentID, parseErr := strconv.Atoi(prop.Value)
+		if parseErr == nil && extentID > 0 {
+			extents, extentErr := client.QueryISCSIExtents(ctx, []interface{}{
+				[]interface{}{"id", "=", extentID},
+			})
+			if extentErr != nil || len(extents) == 0 {
+				result.Checks = append(result.Checks, TroubleshootCheck{
+					Name:    "iSCSI Extent",
+					Status:  statusError,
+					Message: fmt.Sprintf("iSCSI extent not found (ID: %d)", extentID),
+				})
+				result.Suggestions = append(result.Suggestions, "iSCSI extent may have been deleted - delete/recreate the PVC")
+				return
+			}
+
+			extent := &extents[0]
+			if !extent.Enabled {
+				result.Checks = append(result.Checks, TroubleshootCheck{
+					Name:    "iSCSI Extent",
+					Status:  statusWarning,
+					Message: fmt.Sprintf("iSCSI extent exists but is disabled (ID: %d)", extentID),
+				})
+				result.Suggestions = append(result.Suggestions, "Enable the iSCSI extent in TrueNAS UI or via API")
+			} else {
+				result.Checks = append(result.Checks, TroubleshootCheck{
+					Name:    "iSCSI Extent",
+					Status:  statusOK,
+					Message: fmt.Sprintf("iSCSI extent found and enabled (ID: %d)", extentID),
+				})
+			}
+		}
+	}
+
+	// Check target-extent association (LUN mapping)
+	associations, assocErr := client.ISCSITargetExtentByTarget(ctx, target.ID)
+	if assocErr != nil || len(associations) == 0 {
+		result.Checks = append(result.Checks, TroubleshootCheck{
+			Name:    "iSCSI LUN Mapping",
+			Status:  statusError,
+			Message: "Target-extent association missing",
+		})
+		result.Suggestions = append(result.Suggestions, "iSCSI target-extent association missing - the LUN mapping may need to be recreated")
+		return
+	}
+
+	result.Checks = append(result.Checks, TroubleshootCheck{
+		Name:    "iSCSI LUN Mapping",
+		Status:  statusOK,
+		Message: fmt.Sprintf("Target-extent association found (LUN %d)", associations[0].LunID),
 	})
 }
 

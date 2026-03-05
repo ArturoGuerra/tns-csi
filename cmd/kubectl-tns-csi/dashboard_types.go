@@ -22,6 +22,7 @@ type (
 	NFSShareDetails        = dashboard.NFSShareDetails
 	NVMeOFSubsystemDetails = dashboard.NVMeOFSubsystemDetails
 	SMBShareDetails        = dashboard.SMBShareDetails
+	ISCSITargetDetails     = dashboard.ISCSITargetDetails
 	MetricsSummary         = dashboard.MetricsSummary
 	DashboardData          = dashboard.Data
 	SummaryData            = dashboard.SummaryData

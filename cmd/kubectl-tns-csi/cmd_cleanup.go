@@ -260,6 +260,8 @@ func deleteOrphanedVolume(ctx context.Context, client tnsapi.ClientInterface, vo
 		return deleteNVMeOFVolumeResources(ctx, client, ds)
 	case protocolSMB:
 		return deleteSMBVolumeResources(ctx, client, ds)
+	case protocolISCSI:
+		return deleteISCSIVolumeResources(ctx, client, ds)
 	default:
 		// Unknown protocol - just try to delete the dataset
 		return client.DeleteDataset(ctx, ds.ID)
@@ -327,6 +329,43 @@ func deleteSMBVolumeResources(ctx context.Context, client tnsapi.ClientInterface
 	}
 
 	// Delete the dataset
+	return client.DeleteDataset(ctx, ds.ID)
+}
+
+// deleteISCSIVolumeResources deletes iSCSI target, extent, target-extent associations, and zvol.
+func deleteISCSIVolumeResources(ctx context.Context, client tnsapi.ClientInterface, ds *tnsapi.DatasetWithProperties) error {
+	// Get target ID and delete target-extent associations first
+	if prop, ok := ds.UserProperties[tnsapi.PropertyISCSITargetID]; ok && prop.Value != "" {
+		targetID, err := strconv.Atoi(prop.Value)
+		if err == nil && targetID > 0 {
+			// Delete target-extent associations
+			associations, assocErr := client.ISCSITargetExtentByTarget(ctx, targetID)
+			if assocErr == nil {
+				for _, assoc := range associations {
+					if err := client.DeleteISCSITargetExtent(ctx, assoc.ID, true); err != nil {
+						fmt.Printf("(warning: failed to delete iSCSI target-extent %d: %v) ", assoc.ID, err)
+					}
+				}
+			}
+
+			// Delete the target
+			if err := client.DeleteISCSITarget(ctx, targetID, true); err != nil {
+				fmt.Printf("(warning: failed to delete iSCSI target %d: %v) ", targetID, err)
+			}
+		}
+	}
+
+	// Delete the extent
+	if prop, ok := ds.UserProperties[tnsapi.PropertyISCSIExtentID]; ok && prop.Value != "" {
+		extentID, err := strconv.Atoi(prop.Value)
+		if err == nil && extentID > 0 {
+			if err := client.DeleteISCSIExtent(ctx, extentID, false, true); err != nil {
+				fmt.Printf("(warning: failed to delete iSCSI extent %d: %v) ", extentID, err)
+			}
+		}
+	}
+
+	// Delete the zvol
 	return client.DeleteDataset(ctx, ds.ID)
 }
 

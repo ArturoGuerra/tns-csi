@@ -98,6 +98,8 @@ func gatherOperationMetrics(summary *MetricsSummary, metrics []*dto.Metric) {
 			summary.NVMeOFOperations += val
 		case "iscsi":
 			summary.ISCSIOperations += val
+		case "smb":
+			summary.SMBOperations += val
 		}
 
 		switch getLabelValue(m, "operation") {

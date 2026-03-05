@@ -17,6 +17,7 @@ var (
 	errNoNFSShare     = errors.New("no NFS share found")
 	errNoSMBShare     = errors.New("no SMB share found")
 	errNoSubsystemNQN = errors.New("no subsystem NQN found")
+	errNoISCSIIQN     = errors.New("no iSCSI IQN found")
 )
 
 // FindManagedVolumes finds all datasets managed by tns-csi.
@@ -420,6 +421,10 @@ func GetVolumeDetails(ctx context.Context, client tnsapi.ClientInterface, volume
 		if smbDetails, smbErr := getSMBShareDetails(ctx, client, dataset); smbErr == nil {
 			details.SMBShare = smbDetails
 		}
+	case protocolISCSI:
+		if iscsiDetails, iscsiErr := getISCSITargetDetails(ctx, client, dataset); iscsiErr == nil {
+			details.ISCSITarget = iscsiDetails
+		}
 	}
 
 	return details, nil
@@ -512,6 +517,32 @@ func getSMBShareDetails(ctx context.Context, client tnsapi.ClientInterface, data
 		Name:    share.Name,
 		Path:    share.Path,
 		Enabled: share.Enabled,
+	}, nil
+}
+
+func getISCSITargetDetails(ctx context.Context, client tnsapi.ClientInterface, dataset *tnsapi.DatasetWithProperties) (*ISCSITargetDetails, error) {
+	iqn := ""
+	if prop, ok := dataset.UserProperties[tnsapi.PropertyISCSIIQN]; ok {
+		iqn = prop.Value
+	}
+	if iqn == "" {
+		return nil, errNoISCSIIQN
+	}
+
+	targetName := ""
+	if prop, ok := dataset.UserProperties[tnsapi.PropertyCSIVolumeName]; ok {
+		targetName = prop.Value
+	}
+
+	target, err := client.ISCSITargetByName(ctx, targetName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ISCSITargetDetails{
+		ID:   target.ID,
+		Name: target.Name,
+		IQN:  iqn,
 	}, nil
 }
 

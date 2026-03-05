@@ -29,6 +29,22 @@ This CSI driver enables Kubernetes to provision and manage persistent volumes on
 - **iSCSI** - Traditional block storage protocol with broad compatibility
 - **SMB/CIFS** - Authenticated file sharing with Windows compatibility
 
+## Supporting This Project
+
+If you find this driver useful, please consider helping keep it alive.
+
+Every commit is tested against a **real TrueNAS server** and a **real Kubernetes cluster** across 6 distributions and 4 storage protocols. That infrastructure isn't free — GitHub-hosted runners can't do nested virtualization, so reliable testing requires dedicated self-hosted servers.
+
+**What it takes to run this:**
+- **Self-hosted GitHub Actions runner** with nested virtualization (OVH dedicated server)
+- **Dedicated TrueNAS server** (Akamai/Linode) running real ZFS pools, NFS/SMB shares, NVMe-oF subsystems, and iSCSI targets
+
+These costs are currently paid out of pocket by the maintainer. This is a community project with **no corporate backing** — I reached out to iXsystems (the company behind TrueNAS) asking for any kind of support for a driver that directly benefits their platform and users. They didn't respond.
+
+[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?logo=github)](https://github.com/sponsors/fenio)
+
+Even small contributions help keep the test infrastructure running. Stars, bug reports, and code contributions are equally appreciated.
+
 ## Comparison with Other Drivers
 
 | | TNS-CSI | truenas-csi (Official) | Democratic-CSI |
@@ -416,4 +432,5 @@ This project is licensed under the GNU General Public License v3.0 (GPL-3.0) - s
 
 ## Acknowledgments
 
-This driver is designed to work with TrueNAS Scale 25.10+.
+- [Akamai/Linode](https://www.linode.com/) — for providing infrastructure credits that power the TrueNAS test server
+- This driver is designed to work with [TrueNAS Scale](https://www.truenas.com/truenas-scale/) 25.10+

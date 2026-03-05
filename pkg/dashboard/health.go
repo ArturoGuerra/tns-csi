@@ -8,6 +8,55 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// healthResourceMaps holds bulk-queried resource maps for health checking.
+type healthResourceMaps struct {
+	nfsShareMap    map[string]*tnsapi.NFSShare
+	nvmeSubsysMap  map[string]*tnsapi.NVMeOFSubsystem
+	smbShareMap    map[string]*tnsapi.SMBShare
+	iscsiTargetMap map[string]*tnsapi.ISCSITarget
+}
+
+// buildHealthResourceMaps queries all protocol resources in bulk for health checking.
+func buildHealthResourceMaps(ctx context.Context, client tnsapi.ClientInterface) *healthResourceMaps {
+	m := &healthResourceMaps{
+		nfsShareMap:    make(map[string]*tnsapi.NFSShare),
+		nvmeSubsysMap:  make(map[string]*tnsapi.NVMeOFSubsystem),
+		smbShareMap:    make(map[string]*tnsapi.SMBShare),
+		iscsiTargetMap: make(map[string]*tnsapi.ISCSITarget),
+	}
+
+	nfsShares, err := client.QueryAllNFSShares(ctx, "")
+	if err == nil {
+		for i := range nfsShares {
+			m.nfsShareMap[nfsShares[i].Path] = &nfsShares[i]
+		}
+	}
+
+	nvmeSubsystems, err := client.ListAllNVMeOFSubsystems(ctx)
+	if err == nil {
+		for i := range nvmeSubsystems {
+			m.nvmeSubsysMap[nvmeSubsystems[i].Name] = &nvmeSubsystems[i]
+			m.nvmeSubsysMap[nvmeSubsystems[i].NQN] = &nvmeSubsystems[i]
+		}
+	}
+
+	smbShares, err := client.QueryAllSMBShares(ctx, "")
+	if err == nil {
+		for i := range smbShares {
+			m.smbShareMap[smbShares[i].Path] = &smbShares[i]
+		}
+	}
+
+	iscsiTargets, err := client.QueryISCSITargets(ctx, nil)
+	if err == nil {
+		for i := range iscsiTargets {
+			m.iscsiTargetMap[iscsiTargets[i].Name] = &iscsiTargets[i]
+		}
+	}
+
+	return m
+}
+
 // CheckVolumeHealth checks the health of all managed volumes.
 func CheckVolumeHealth(ctx context.Context, client tnsapi.ClientInterface) (*HealthReport, error) {
 	datasets, err := client.FindDatasetsByProperty(ctx, "", tnsapi.PropertyManagedBy, tnsapi.ManagedByValue)
@@ -15,33 +64,7 @@ func CheckVolumeHealth(ctx context.Context, client tnsapi.ClientInterface) (*Hea
 		return nil, err
 	}
 
-	nfsShares, err := client.QueryAllNFSShares(ctx, "")
-	if err != nil {
-		nfsShares = nil
-	}
-	nfsShareMap := make(map[string]*tnsapi.NFSShare)
-	for i := range nfsShares {
-		nfsShareMap[nfsShares[i].Path] = &nfsShares[i]
-	}
-
-	nvmeSubsystems, err := client.ListAllNVMeOFSubsystems(ctx)
-	if err != nil {
-		nvmeSubsystems = nil
-	}
-	nvmeSubsysMap := make(map[string]*tnsapi.NVMeOFSubsystem)
-	for i := range nvmeSubsystems {
-		nvmeSubsysMap[nvmeSubsystems[i].Name] = &nvmeSubsystems[i]
-		nvmeSubsysMap[nvmeSubsystems[i].NQN] = &nvmeSubsystems[i]
-	}
-
-	smbShares, err := client.QueryAllSMBShares(ctx, "")
-	if err != nil {
-		smbShares = nil
-	}
-	smbShareMap := make(map[string]*tnsapi.SMBShare)
-	for i := range smbShares {
-		smbShareMap[smbShares[i].Path] = &smbShares[i]
-	}
+	resources := buildHealthResourceMaps(ctx, client)
 
 	report := &HealthReport{
 		Volumes:  make([]VolumeHealth, 0),
@@ -77,11 +100,13 @@ func CheckVolumeHealth(ctx context.Context, client tnsapi.ClientInterface) (*Hea
 
 		switch health.Protocol {
 		case protocolNFS:
-			CheckNFSHealth(ds, nfsShareMap, &health)
+			CheckNFSHealth(ds, resources.nfsShareMap, &health)
 		case protocolNVMeOF:
-			CheckNVMeOFHealth(ds, nvmeSubsysMap, &health)
+			CheckNVMeOFHealth(ds, resources.nvmeSubsysMap, &health)
 		case protocolSMB:
-			CheckSMBHealth(ds, smbShareMap, &health)
+			CheckSMBHealth(ds, resources.smbShareMap, &health)
+		case protocolISCSI:
+			CheckISCSIHealth(ds, resources.iscsiTargetMap, &health)
 		}
 
 		if len(health.Issues) > 0 {
@@ -200,6 +225,37 @@ func CheckSMBHealth(ds *tnsapi.DatasetWithProperties, smbShareMap map[string]*tn
 		smbOK = false
 	}
 	health.SMBShareOK = &smbOK
+}
+
+// CheckISCSIHealth checks if the iSCSI target for a dataset is healthy.
+func CheckISCSIHealth(ds *tnsapi.DatasetWithProperties, iscsiTargetMap map[string]*tnsapi.ISCSITarget, health *VolumeHealth) {
+	iqn := ""
+	if prop, ok := ds.UserProperties[tnsapi.PropertyISCSIIQN]; ok {
+		iqn = prop.Value
+	}
+
+	if iqn == "" {
+		health.Issues = append(health.Issues, "iSCSI IQN not found in properties")
+		targetOK := false
+		health.TargetOK = &targetOK
+		return
+	}
+
+	targetName := ""
+	if prop, ok := ds.UserProperties[tnsapi.PropertyCSIVolumeName]; ok {
+		targetName = prop.Value
+	}
+
+	_, exists := iscsiTargetMap[targetName]
+	if !exists {
+		health.Issues = append(health.Issues, "iSCSI target not found: "+targetName)
+		targetOK := false
+		health.TargetOK = &targetOK
+		return
+	}
+
+	targetOK := true
+	health.TargetOK = &targetOK
 }
 
 // AnnotateVolumesWithHealth runs health checks and annotates VolumeInfo slices with health status.
