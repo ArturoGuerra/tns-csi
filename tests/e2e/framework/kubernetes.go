@@ -1388,3 +1388,25 @@ func (k *KubernetesClient) GetEventsForPVC(ctx context.Context, pvcName string) 
 	}
 	return eventList.Items, nil
 }
+
+// ErrPVUnexpectedlyDeleted is returned when a PV is deleted during a guard check.
+var ErrPVUnexpectedlyDeleted = errors.New("PV was unexpectedly deleted")
+
+// WaitForPVNotDeletedWithin polls for the given duration and expects the PV to still exist.
+// Returns nil if the PV survives the entire duration (deletion guard is working).
+// Returns an error if the PV disappears before the duration elapses.
+func (k *KubernetesClient) WaitForPVNotDeletedWithin(ctx context.Context, pvName string, duration time.Duration) error {
+	deadline := time.Now().Add(duration)
+	for time.Now().Before(deadline) {
+		_, err := k.clientset.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			return fmt.Errorf("%w: %s (deletion guard should have prevented this)", ErrPVUnexpectedlyDeleted, pvName)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(5 * time.Second):
+		}
+	}
+	return nil // PV survived — guard is working
+}
