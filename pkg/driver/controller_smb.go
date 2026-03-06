@@ -404,30 +404,36 @@ func (s *ControllerService) deleteSMBVolume(ctx context.Context, meta *VolumeMet
 
 		firstErr := s.apiClient.DeleteDataset(ctx, meta.DatasetID)
 		if firstErr != nil && !isNotFoundError(firstErr) {
-			// Fail fast for dependent clones — this will never resolve until clones are deleted
+			resolved := false
 			if isDependentClonesError(firstErr) {
-				klog.Warningf("Dataset %s has dependent clones — cannot delete", meta.DatasetID)
-				timer.ObserveError()
-				return nil, status.Errorf(codes.FailedPrecondition,
-					"cannot delete volume %s: dataset %s has dependent clones; delete the cloned volumes first",
-					meta.Name, meta.DatasetID)
+				if err := s.tryPromoteAndDeleteDataset(ctx, meta.DatasetID); err == nil {
+					resolved = true
+				} else {
+					klog.Warningf("Dataset %s has dependent clones — cannot delete", meta.DatasetID)
+					timer.ObserveError()
+					return nil, status.Errorf(codes.FailedPrecondition,
+						"cannot delete volume %s: dataset %s has dependent clones; delete the cloned volumes first",
+						meta.Name, meta.DatasetID)
+				}
 			}
 
-			klog.Infof("Direct deletion failed for %s: %v — cleaning up snapshots before retry", meta.DatasetID, firstErr)
-			s.deleteDatasetSnapshots(ctx, meta.DatasetID)
+			if !resolved {
+				klog.Infof("Direct deletion failed for %s: %v — cleaning up snapshots before retry", meta.DatasetID, firstErr)
+				s.deleteDatasetSnapshots(ctx, meta.DatasetID)
 
-			retryConfig := retry.DeletionConfig("delete-smb-dataset")
-			err := retry.WithRetryNoResult(ctx, retryConfig, func() error {
-				deleteErr := s.apiClient.DeleteDataset(ctx, meta.DatasetID)
-				if deleteErr != nil && isNotFoundError(deleteErr) {
-					return nil
+				retryConfig := retry.DeletionConfig("delete-smb-dataset")
+				err := retry.WithRetryNoResult(ctx, retryConfig, func() error {
+					deleteErr := s.apiClient.DeleteDataset(ctx, meta.DatasetID)
+					if deleteErr != nil && isNotFoundError(deleteErr) {
+						return nil
+					}
+					return deleteErr
+				})
+
+				if err != nil {
+					timer.ObserveError()
+					return nil, status.Errorf(codes.Internal, "Failed to delete dataset %s: %v", meta.DatasetID, err)
 				}
-				return deleteErr
-			})
-
-			if err != nil {
-				timer.ObserveError()
-				return nil, status.Errorf(codes.Internal, "Failed to delete dataset %s: %v", meta.DatasetID, err)
 			}
 		}
 		klog.V(4).Infof("Successfully deleted dataset %s", meta.DatasetID)

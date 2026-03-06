@@ -1057,7 +1057,14 @@ func (s *ControllerService) deleteZVOL(ctx context.Context, meta *VolumeMetadata
 		return nil
 	}
 
-	// First attempt failed — clean up snapshots and retry
+	// If dependent clones from deferred-destroy snapshots, promote them and retry
+	if isDependentClonesError(firstErr) {
+		if err := s.tryPromoteAndDeleteDataset(ctx, meta.DatasetID); err == nil {
+			return nil
+		}
+	}
+
+	// Clean up non-CSI snapshots and retry
 	klog.Infof("deleteZVOL: Direct deletion failed for %s: %v — cleaning up snapshots before retry",
 		meta.DatasetID, firstErr)
 	s.deleteDatasetSnapshots(ctx, meta.DatasetID)

@@ -62,6 +62,8 @@ var (
 
 // capacityErrorSubstrings are error message patterns that indicate insufficient pool capacity.
 // TrueNAS returns these when a pool or dataset doesn't have enough free space.
+var errNoDeferredClonesToPromote = errors.New("no deferred-destroy snapshot clones to promote")
+
 var capacityErrorSubstrings = []string{
 	"insufficient space",
 	"out of space",
@@ -475,6 +477,67 @@ func (s *ControllerService) deleteDatasetSnapshots(_ context.Context, datasetID 
 			klog.Warningf("Failed to delete snapshot %s: %v (continuing)", snap.ID, err)
 		}
 	}
+}
+
+// promoteClonesOfDeferredSnapshots promotes clones of deferred-destroy snapshots on a dataset.
+// When CSI DeleteSnapshot is called with defer=true (because a clone depends on the snapshot),
+// the snapshot remains on the source dataset and blocks deletion. Promoting the clone reverses
+// the dependency, allowing the source dataset to be deleted.
+// Returns true if any clones were promoted (caller should retry deletion).
+func (s *ControllerService) promoteClonesOfDeferredSnapshots(_ context.Context, datasetID string) bool {
+	snapCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	snapshots, err := s.apiClient.QuerySnapshotsWithProperties(snapCtx, []interface{}{ //nolint:contextcheck // intentional: background context needed
+		[]interface{}{"dataset", "=", datasetID},
+	})
+	if err != nil {
+		klog.Warningf("Failed to query snapshots for %s: %v", datasetID, err)
+		return false
+	}
+
+	promoted := false
+	for _, snap := range snapshots {
+		dv, dok := tnsapi.GetSnapshotPropertyValue(snap, "defer_destroy")
+		if !dok || dv != "on" {
+			continue
+		}
+		cloneVal, cok := tnsapi.GetSnapshotPropertyValue(snap, "clones")
+		if !cok || cloneVal == "" {
+			continue
+		}
+		// clones value can be comma-separated for multiple clones
+		for _, clone := range strings.Split(cloneVal, ",") {
+			clone = strings.TrimSpace(clone)
+			if clone == "" {
+				continue
+			}
+			klog.Infof("Promoting clone %s of deferred-destroy snapshot %s", clone, snap.ID)
+			if err := s.apiClient.PromoteDataset(snapCtx, clone); err != nil { //nolint:contextcheck // intentional
+				klog.Warningf("Failed to promote clone %s: %v", clone, err)
+			} else {
+				promoted = true
+			}
+		}
+	}
+	return promoted
+}
+
+// tryPromoteAndDeleteDataset handles the dependent-clones case during dataset deletion.
+// When DeleteDataset fails with "dependent clones", this tries promoting clones of
+// deferred-destroy snapshots (CSI-deleted but still present due to clone dependency),
+// then retries deletion. Returns nil on success, or the original error if unresolvable.
+func (s *ControllerService) tryPromoteAndDeleteDataset(ctx context.Context, datasetID string) error {
+	if s.promoteClonesOfDeferredSnapshots(ctx, datasetID) {
+		retryErr := s.apiClient.DeleteDataset(ctx, datasetID)
+		if retryErr == nil || isNotFoundError(retryErr) {
+			klog.Infof("Dataset %s deleted after promoting deferred snapshot clones", datasetID)
+			return nil
+		}
+		klog.Warningf("Dataset %s still has dependent clones after promotion: %v", datasetID, retryErr)
+		return retryErr
+	}
+	return errNoDeferredClonesToPromote
 }
 
 // CreateVolume creates a new volume.
