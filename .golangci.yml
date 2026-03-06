@@ -176,6 +176,7 @@ linters:
         - G204  # Subprocess launched with variable - expected for CSI driver (nvme, mount, blkid, etc.)
         - G117  # Exported struct field matches secret pattern - APIKey is a config field, not a secret in code
         - G703  # Path traversal via taint analysis - false positive on socket file removal
+        - G118  # Goroutine uses context.Background - expected for signal handlers and background tasks
       
     gocritic:
       enabled-tags:
