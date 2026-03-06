@@ -410,8 +410,9 @@ func (s *ControllerService) datasetHasCSIManagedSnapshots(_ context.Context, dat
 		[]interface{}{"dataset", "=", datasetID},
 	}
 
-	// Query snapshots with only the managed_by property — much faster than fetching all user properties
-	snapshots, err := s.apiClient.QuerySnapshotsWithProperties(snapCtx, filters, []string{tnsapi.PropertyManagedBy}) //nolint:contextcheck // intentional: parent gRPC context deadline is too short
+	// Query snapshots with user_properties — extra.properties only returns built-in ZFS properties,
+	// not user-defined properties like tns-csi:managed_by.
+	snapshots, err := s.apiClient.QuerySnapshotsWithUserProperties(snapCtx, filters) //nolint:contextcheck // intentional: parent gRPC context deadline is too short
 	if err != nil {
 		return false, fmt.Errorf("failed to query snapshots for %s: %w", datasetID, err)
 	}
@@ -422,14 +423,9 @@ func (s *ControllerService) datasetHasCSIManagedSnapshots(_ context.Context, dat
 	}
 
 	for _, snap := range snapshots {
-		if propData, ok := snap.Properties[tnsapi.PropertyManagedBy]; ok {
-			// extra.properties returns {"tns-csi:managed_by": {"value": "tns-csi", ...}}
-			if propMap, ok := propData.(map[string]interface{}); ok {
-				if val, ok := propMap["value"].(string); ok && val == tnsapi.ManagedByValue {
-					klog.Infof("Dataset %s has CSI-managed snapshot: %s", datasetID, snap.ID)
-					return true, nil
-				}
-			}
+		if prop, ok := snap.UserProperties[tnsapi.PropertyManagedBy]; ok && prop.Value == tnsapi.ManagedByValue {
+			klog.Infof("Dataset %s has CSI-managed snapshot: %s", datasetID, snap.ID)
+			return true, nil
 		}
 	}
 	return false, nil
@@ -454,8 +450,8 @@ func (s *ControllerService) deleteDatasetSnapshots(_ context.Context, datasetID 
 		[]interface{}{"dataset", "=", datasetID},
 	}
 
-	// Query snapshots with only the managed_by property — fast targeted query
-	snapshots, err := s.apiClient.QuerySnapshotsWithProperties(snapCtx, filters, []string{tnsapi.PropertyManagedBy}) //nolint:contextcheck // intentional: background context needed for reliable cleanup
+	// Query snapshots with user_properties to check for CSI-managed snapshots
+	snapshots, err := s.apiClient.QuerySnapshotsWithUserProperties(snapCtx, filters) //nolint:contextcheck // intentional: background context needed for reliable cleanup
 	if err != nil {
 		klog.Warningf("Failed to query snapshots for dataset %s: %v (skipping snapshot cleanup)", datasetID, err)
 		return
@@ -468,13 +464,9 @@ func (s *ControllerService) deleteDatasetSnapshots(_ context.Context, datasetID 
 
 	for _, snap := range snapshots {
 		// Skip CSI-managed snapshots — they must be deleted via DeleteSnapshot by their owner (e.g., VolSync)
-		if propData, ok := snap.Properties[tnsapi.PropertyManagedBy]; ok {
-			if propMap, ok := propData.(map[string]interface{}); ok {
-				if val, ok := propMap["value"].(string); ok && val == tnsapi.ManagedByValue {
-					klog.Infof("Skipping CSI-managed snapshot %s (will be deleted via DeleteSnapshot)", snap.ID)
-					continue
-				}
-			}
+		if prop, ok := snap.UserProperties[tnsapi.PropertyManagedBy]; ok && prop.Value == tnsapi.ManagedByValue {
+			klog.Infof("Skipping CSI-managed snapshot %s (will be deleted via DeleteSnapshot)", snap.ID)
+			continue
 		}
 		klog.V(4).Infof("Deleting non-CSI snapshot %s (defer=true to handle dependent clones)", snap.ID)
 		if err := s.apiClient.DeleteSnapshot(snapCtx, snap.ID); err != nil { //nolint:contextcheck // intentional: background context needed for reliable cleanup
