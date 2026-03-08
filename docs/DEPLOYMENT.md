@@ -355,6 +355,31 @@ helm install tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
 
 **Note:** SMB requires the SMB service and user account to be pre-configured. See Step 1.5 for setup instructions.
 
+### OpenShift
+
+When deploying on OpenShift, enable SecurityContextConstraints support:
+
+```bash
+helm install tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
+  --version 0.17.0 \
+  --namespace kube-system \
+  --create-namespace \
+  --set openshift.enabled=true \
+  --set truenas.url="wss://YOUR-TRUENAS-IP:443/api/current" \
+  --set truenas.apiKey="YOUR-API-KEY" \
+  --set storageClasses[0].name="tns-csi-nfs" \
+  --set storageClasses[0].enabled=true \
+  --set storageClasses[0].protocol="nfs" \
+  --set storageClasses[0].pool="YOUR-POOL-NAME" \
+  --set storageClasses[0].server="YOUR-TRUENAS-IP"
+```
+
+Setting `openshift.enabled=true` creates:
+- A **SecurityContextConstraints** resource granting the node DaemonSet privileged access (required for mount operations)
+- A **ClusterRole** and **ClusterRoleBinding** to associate the SCC with the node service account
+
+Without this, the node DaemonSet pods will fail to start on OpenShift due to restricted security policies.
+
 This single command will:
 - Create the kube-system namespace if needed
 - Deploy the CSI controller and node components

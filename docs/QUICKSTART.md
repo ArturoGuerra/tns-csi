@@ -12,6 +12,8 @@ This driver is in early development phase. Use only for testing and evaluation e
 - Storage pool available on TrueNAS
 - For NFS: `nfs-common` package on all nodes (Debian/Ubuntu)
 
+**OpenShift users:** Add `--set openshift.enabled=true` to all Helm commands below. This creates the required SecurityContextConstraints for the node DaemonSet. See [DEPLOYMENT.md](DEPLOYMENT.md#openshift) for details.
+
 ## Installation (Recommended: Helm)
 
 ### Quick Install with Helm
