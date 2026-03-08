@@ -239,22 +239,58 @@ jobs:
           done
 
       - name: Test NFS mount from VM
-        timeout-minutes: 1
+        timeout-minutes: 2
         env:
           TRUENAS_HOST: ${{ secrets.TRUENAS_HOST }}
           TRUENAS_POOL: ${{ secrets.TRUENAS_POOL }}
+          TRUENAS_API_KEY: ${{ secrets.TRUENAS_API_KEY }}
         run: |
-          echo "Testing manual NFS mount from VM..."
+          echo "Creating temporary NFS test dataset and share via API..."
+          # Create a test dataset
+          DATASET_RESULT=$(ssh $SSH_OPTS ci@localhost "
+            curl -sk -X POST 'https://$TRUENAS_HOST/api/v2.0/pool/dataset' \
+              -H 'Authorization: Bearer $TRUENAS_API_KEY' \
+              -H 'Content-Type: application/json' \
+              -d '{\"name\": \"$TRUENAS_POOL/nfs-mount-test\", \"type\": \"FILESYSTEM\"}'
+          " 2>/dev/null) || true
+          echo "Dataset creation result: $DATASET_RESULT"
+
+          # Create NFS share for the test dataset
+          SHARE_RESULT=$(ssh $SSH_OPTS ci@localhost "
+            curl -sk -X POST 'https://$TRUENAS_HOST/api/v2.0/sharing/nfs' \
+              -H 'Authorization: Bearer $TRUENAS_API_KEY' \
+              -H 'Content-Type: application/json' \
+              -d '{\"path\": \"/mnt/$TRUENAS_POOL/nfs-mount-test\", \"comment\": \"QEMU NFS test\", \"maproot_user\": \"root\", \"maproot_group\": \"wheel\", \"enabled\": true}'
+          " 2>/dev/null) || true
+          echo "NFS share creation result: $SHARE_RESULT"
+
+          echo ""
+          echo "Testing NFS mount from VM (outside container)..."
           ssh $SSH_OPTS ci@localhost "
             sudo mkdir -p /tmp/nfstest
-            echo '--- Trying NFSv4 mount with noresvport ---'
-            sudo mount -v -t nfs -o vers=4.2,nolock,noresvport $TRUENAS_HOST:/mnt/$TRUENAS_POOL /tmp/nfstest 2>&1 || true
-            echo '--- Trying NFSv4 mount without noresvport ---'
-            sudo mount -v -t nfs -o vers=4.2,nolock $TRUENAS_HOST:/mnt/$TRUENAS_POOL /tmp/nfstest 2>&1 || true
-            echo '--- Trying mount.nfs4 directly ---'
-            sudo mount -v -t nfs4 $TRUENAS_HOST:/mnt/$TRUENAS_POOL /tmp/nfstest 2>&1 || true
+            echo '--- Trying mount with noresvport ---'
+            sudo mount -v -t nfs -o vers=4.2,nolock,noresvport $TRUENAS_HOST:/mnt/$TRUENAS_POOL/nfs-mount-test /tmp/nfstest 2>&1 || true
+            echo '--- Trying mount without noresvport ---'
+            sudo mount -v -t nfs -o vers=4.2,nolock $TRUENAS_HOST:/mnt/$TRUENAS_POOL/nfs-mount-test /tmp/nfstest 2>&1 || true
+            echo '--- Trying NFSv3 ---'
+            sudo mount -v -t nfs -o vers=3,nolock,noresvport $TRUENAS_HOST:/mnt/$TRUENAS_POOL/nfs-mount-test /tmp/nfstest 2>&1 || true
             sudo umount /tmp/nfstest 2>/dev/null || true
           "
+
+          # Cleanup test dataset and share
+          echo ""
+          echo "Cleaning up test dataset..."
+          SHARE_ID=$(echo "$SHARE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null) || true
+          if [ -n "$SHARE_ID" ]; then
+            ssh $SSH_OPTS ci@localhost "
+              curl -sk -X DELETE 'https://$TRUENAS_HOST/api/v2.0/sharing/nfs/id/$SHARE_ID' \
+                -H 'Authorization: Bearer $TRUENAS_API_KEY'
+            " 2>/dev/null || true
+          fi
+          ssh $SSH_OPTS ci@localhost "
+            curl -sk -X DELETE 'https://$TRUENAS_HOST/api/v2.0/pool/dataset/id/$TRUENAS_POOL%2Fnfs-mount-test' \
+              -H 'Authorization: Bearer $TRUENAS_API_KEY'
+          " 2>/dev/null || true
 
       # ── Phase 5: Build and deploy CSI driver ─────────────────────
       - name: Build CSI image
