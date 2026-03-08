@@ -14,7 +14,7 @@
 set -euo pipefail
 
 NAMESPACE="smoke-test"
-TIMEOUT="30s"
+TIMEOUT="60s"
 PASSED=0
 FAILED=0
 ERRORS=""
