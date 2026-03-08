@@ -135,27 +135,10 @@ This driver is tested and verified to work on **6 Kubernetes distributions** wit
 | Minikube | ✅ | ✅ | ✅ | ✅ | Local Kubernetes for development |
 | Talos | ✅ | ✅ | ✅ | ✅ | Secure, immutable Kubernetes OS |
 | MicroK8s | ✅ | ✅ | ✅ | ✅ | Lightweight Kubernetes by Canonical |
-| **OpenShift** | ✅ | ✅ | ✅ | ✅ | Red Hat enterprise Kubernetes platform |
 
 Compatibility tests run weekly and on-demand. See [Distro Compatibility Tests](docs/DISTRO-COMPATIBILITY.md) for details.
 
-### OpenShift Support
-
-The driver works on OpenShift with the `openshift.enabled` Helm value, which creates the required SecurityContextConstraints (SCC) for the node DaemonSet:
-
-```bash
-helm install tns-csi oci://registry-1.docker.io/bfenski/tns-csi-driver \
-  --version 0.17.0 \
-  --namespace kube-system \
-  --set openshift.enabled=true \
-  --set truenas.url="wss://YOUR-TRUENAS-IP:443/api/current" \
-  --set truenas.apiKey="YOUR-API-KEY" \
-  --set storageClasses[0].name=tns-csi-nfs \
-  --set storageClasses[0].enabled=true \
-  --set storageClasses[0].protocol=nfs \
-  --set storageClasses[0].pool="YOUR-POOL-NAME" \
-  --set storageClasses[0].server="YOUR-TRUENAS-IP"
-```
+**OpenShift** is also confirmed to work by community users. Set `openshift.enabled=true` in Helm values to create the required SecurityContextConstraints. See [DEPLOYMENT.md](docs/DEPLOYMENT.md#openshift) for details.
 
 ## Prerequisites
 
