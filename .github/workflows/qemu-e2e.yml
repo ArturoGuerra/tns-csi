@@ -268,13 +268,32 @@ jobs:
           echo "Testing NFS mount from VM (outside container)..."
           ssh $SSH_OPTS ci@localhost "
             sudo mkdir -p /tmp/nfstest
+            sudo dmesg -C
+
+            echo '--- rpcdebug enable ---'
+            sudo rpcdebug -m nfs -s all 2>/dev/null || true
+
             echo '--- Trying mount with noresvport ---'
             sudo mount -v -t nfs -o vers=4.2,nolock,noresvport $TRUENAS_HOST:/mnt/$TRUENAS_POOL/nfs-mount-test /tmp/nfstest 2>&1 || true
-            echo '--- Trying mount without noresvport ---'
-            sudo mount -v -t nfs -o vers=4.2,nolock $TRUENAS_HOST:/mnt/$TRUENAS_POOL/nfs-mount-test /tmp/nfstest 2>&1 || true
-            echo '--- Trying NFSv3 ---'
-            sudo mount -v -t nfs -o vers=3,nolock,noresvport $TRUENAS_HOST:/mnt/$TRUENAS_POOL/nfs-mount-test /tmp/nfstest 2>&1 || true
+
+            echo '--- dmesg after mount attempt ---'
+            sudo dmesg 2>/dev/null | tail -30 || true
+            sudo dmesg -C
+
+            echo '--- Trying NFSv4.1 ---'
+            sudo mount -v -t nfs -o vers=4.1,nolock,noresvport $TRUENAS_HOST:/mnt/$TRUENAS_POOL/nfs-mount-test /tmp/nfstest 2>&1 || true
+
+            echo '--- Trying NFSv4.0 ---'
+            sudo mount -v -t nfs -o vers=4.0,nolock,noresvport $TRUENAS_HOST:/mnt/$TRUENAS_POOL/nfs-mount-test /tmp/nfstest 2>&1 || true
+
+            echo '--- AppArmor status ---'
+            sudo aa-status 2>/dev/null | head -10 || echo 'AppArmor not available'
+
+            echo '--- Checking source port binding ---'
+            sudo timeout 3 strace -e trace=network mount -t nfs -o vers=4.2,nolock,noresvport $TRUENAS_HOST:/mnt/$TRUENAS_POOL/nfs-mount-test /tmp/nfstest 2>&1 | grep -E 'bind|connect|EPERM|EACCES' || true
+
             sudo umount /tmp/nfstest 2>/dev/null || true
+            sudo rpcdebug -m nfs -c all 2>/dev/null || true
           "
 
           # Cleanup test dataset and share
