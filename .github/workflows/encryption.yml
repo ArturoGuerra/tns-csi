@@ -194,6 +194,46 @@ jobs:
           path: /tmp/test-logs/
           retention-days: 7
 
+  encryption-smb:
+    name: "Encryption: SMB"
+    runs-on: new
+    timeout-minutes: 25
+    needs: compute-tag
+    if: |
+      !cancelled() && needs.compute-tag.result == 'success' &&
+      (github.event.inputs.protocol == 'all' || github.event.inputs.protocol == 'smb' || github.event.inputs.protocol == '')
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: fenio/setup-k3s@v5
+        with:
+          k3s-args: '--write-kubeconfig-mode 644 --disable=traefik --disable=local-storage'
+      - uses: ./.github/actions/setup-snapshots
+      - name: Install Ginkgo
+        run: go install github.com/onsi/ginkgo/v2/ginkgo@latest
+      - name: Run SMB Encryption Tests
+        env:
+          TRUENAS_HOST: ${{ secrets.TRUENAS_HOST }}
+          TRUENAS_API_KEY: ${{ secrets.TRUENAS_API_KEY }}
+          TRUENAS_POOL: ${{ secrets.TRUENAS_POOL }}
+          CSI_IMAGE_TAG: ${{ needs.compute-tag.outputs.image_tag }}
+          KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+          SMB_USERNAME: ${{ secrets.SMB_USERNAME }}
+          SMB_PASSWORD: ${{ secrets.SMB_PASSWORD }}
+        run: |
+          echo "=== Running SMB Encryption E2E Tests ==="
+          # Run SMB encryption tests from the encryption/ directory
+          ginkgo -v --timeout=20m --focus="SMB Encryption" ./tests/e2e/encryption/...
+      - name: Upload diagnostic logs
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: encryption-smb-diagnostics
+          path: /tmp/test-logs/
+          retention-days: 7
+
   encryption-shared:
     name: "Encryption: Shared"
     runs-on: new
@@ -242,7 +282,7 @@ jobs:
     name: "Encryption Test Summary"
     runs-on: new
     timeout-minutes: 5
-    needs: [encryption-nfs, encryption-nvmeof, encryption-iscsi, encryption-shared]
+    needs: [encryption-nfs, encryption-nvmeof, encryption-iscsi, encryption-smb, encryption-shared]
     if: always()
     steps:
       - name: Generate Test Summary
@@ -253,6 +293,7 @@ jobs:
               'NFS Encryption': '${{ needs.encryption-nfs.result }}',
               'NVMe-oF Encryption': '${{ needs.encryption-nvmeof.result }}',
               'iSCSI Encryption': '${{ needs.encryption-iscsi.result }}',
+              'SMB Encryption': '${{ needs.encryption-smb.result }}',
               'Shared Encryption': '${{ needs.encryption-shared.result }}',
             };
 
@@ -299,7 +340,7 @@ jobs:
             }
 
             summary += `\n## What Was Tested\n\n`;
-            summary += `### Protocol-Specific Tests (NFS, NVMe-oF & iSCSI)\n`;
+            summary += `### Protocol-Specific Tests (NFS, SMB, NVMe-oF & iSCSI)\n`;
             summary += `- **Basic Operations**: Provisioning with auto-generated keys, custom algorithms (AES-128-CCM)\n`;
             summary += `- **Volume Expansion**: Expanding encrypted volumes while preserving data\n`;
             summary += `- **Snapshots**: Creating and restoring snapshots from encrypted volumes\n`;
@@ -307,7 +348,7 @@ jobs:
             summary += `- **Persistence**: Data persistence across pod restarts\n`;
             summary += `- **Block Mode**: NVMe-oF and iSCSI encrypted raw block devices\n\n`;
             summary += `### Shared Tests (All Protocols)\n`;
-            summary += `- **Cross-Protocol Verification**: Encrypted volumes on NFS, NVMe-oF, and iSCSI\n`;
+            summary += `- **Cross-Protocol Verification**: Encrypted volumes on NFS, SMB, NVMe-oF, and iSCSI\n`;
             summary += `- **Snapshot Restore**: Point-in-time restore on encrypted volumes\n`;
             summary += `- **Data Integrity**: Large file checksum verification\n`;
 

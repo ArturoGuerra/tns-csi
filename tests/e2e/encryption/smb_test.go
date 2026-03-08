@@ -1,0 +1,479 @@
+// Package encryption contains E2E tests for ZFS native encryption support.
+package encryption
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+
+	"github.com/fenio/tns-csi/tests/e2e/framework"
+)
+
+var _ = Describe("SMB Encryption", func() {
+	var f *framework.Framework
+
+	const (
+		pvcTimeout = 2 * time.Minute
+		podTimeout = 2 * time.Minute
+	)
+
+	smbParams := func(f *framework.Framework) map[string]string {
+		return map[string]string{
+			"protocol":              "smb",
+			"server":                f.Config.TrueNASHost,
+			"pool":                  f.Config.TrueNASPool,
+			"encryption":            "true",
+			"encryptionGenerateKey": "true",
+			"csi.storage.k8s.io/node-stage-secret-name":      "tns-csi-smb-creds",
+			"csi.storage.k8s.io/node-stage-secret-namespace": "kube-system",
+		}
+	}
+
+	smbParamsWithAlgo := func(f *framework.Framework, algo string) map[string]string {
+		params := smbParams(f)
+		params["encryptionAlgorithm"] = algo
+		return params
+	}
+
+	BeforeEach(func() {
+		var err error
+		f, err = framework.NewFramework()
+		Expect(err).NotTo(HaveOccurred(), "Failed to create framework")
+
+		if f.Config.SMBUsername == "" {
+			Skip("SMB not configured (SMB_USERNAME not set)")
+		}
+
+		err = f.Setup("smb")
+		Expect(err).NotTo(HaveOccurred(), "Failed to setup framework")
+	})
+
+	AfterEach(func() {
+		if f != nil {
+			f.Teardown()
+		}
+	})
+
+	Context("Basic Operations", func() {
+		It("should provision encrypted volume and perform I/O", func() {
+			ctx := context.Background()
+
+			By("Creating encrypted StorageClass")
+			scName := "tns-csi-smb-encrypted-basic"
+			err := f.K8s.CreateStorageClassWithParams(ctx, scName, "tns.csi.io", smbParams(f))
+			Expect(err).NotTo(HaveOccurred())
+			f.Cleanup.Add(func() error {
+				return f.K8s.DeleteStorageClass(ctx, scName)
+			})
+
+			By("Creating PVC")
+			pvc, err := f.CreatePVC(ctx, framework.PVCOptions{
+				Name:             "encrypted-smb-basic",
+				StorageClassName: scName,
+				Size:             "1Gi",
+				AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Waiting for PVC to be bound")
+			err = f.K8s.WaitForPVCBound(ctx, pvc.Name, pvcTimeout)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Creating POD")
+			pod, err := f.CreatePod(ctx, framework.PodOptions{
+				Name:      "encrypted-smb-pod-basic",
+				PVCName:   pvc.Name,
+				MountPath: "/data",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Waiting for POD to be ready")
+			err = f.K8s.WaitForPodReady(ctx, pod.Name, podTimeout)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Writing test data")
+			testData := "Encrypted SMB Test Data"
+			_, err = f.K8s.ExecInPod(ctx, pod.Name, []string{
+				"sh", "-c", fmt.Sprintf("echo '%s' > /data/test.txt && sync", testData),
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Reading back test data")
+			output, err := f.K8s.ExecInPod(ctx, pod.Name, []string{"cat", "/data/test.txt"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal(testData))
+
+			By("Verifying binary data integrity")
+			_, err = f.K8s.ExecInPod(ctx, pod.Name, []string{
+				"sh", "-c", "dd if=/dev/urandom of=/data/random.bin bs=1M count=5 2>/dev/null && sync",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			checksumBefore, err := f.K8s.ExecInPod(ctx, pod.Name, []string{"md5sum", "/data/random.bin"})
+			Expect(err).NotTo(HaveOccurred())
+
+			checksumAfter, err := f.K8s.ExecInPod(ctx, pod.Name, []string{"md5sum", "/data/random.bin"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(checksumAfter).To(Equal(checksumBefore))
+		})
+
+		It("should provision encrypted volume with custom algorithm (AES-128-CCM)", func() {
+			ctx := context.Background()
+
+			By("Creating encrypted StorageClass with AES-128-CCM")
+			scName := "tns-csi-smb-encrypted-aes128"
+			err := f.K8s.CreateStorageClassWithParams(ctx, scName, "tns.csi.io", smbParamsWithAlgo(f, "AES-128-CCM"))
+			Expect(err).NotTo(HaveOccurred())
+			f.Cleanup.Add(func() error {
+				return f.K8s.DeleteStorageClass(ctx, scName)
+			})
+
+			By("Creating PVC")
+			pvc, err := f.CreatePVC(ctx, framework.PVCOptions{
+				Name:             "encrypted-smb-aes128",
+				StorageClassName: scName,
+				Size:             "1Gi",
+				AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Waiting for PVC to be bound")
+			err = f.K8s.WaitForPVCBound(ctx, pvc.Name, pvcTimeout)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Creating POD and verifying I/O")
+			pod, err := f.CreatePod(ctx, framework.PodOptions{
+				Name:      "encrypted-smb-pod-aes128",
+				PVCName:   pvc.Name,
+				MountPath: "/data",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			err = f.K8s.WaitForPodReady(ctx, pod.Name, podTimeout)
+			Expect(err).NotTo(HaveOccurred())
+
+			testData := "AES-128-CCM Encrypted SMB Data"
+			_, err = f.K8s.ExecInPod(ctx, pod.Name, []string{
+				"sh", "-c", fmt.Sprintf("echo '%s' > /data/test.txt && sync", testData),
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			output, err := f.K8s.ExecInPod(ctx, pod.Name, []string{"cat", "/data/test.txt"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal(testData))
+		})
+	})
+
+	Context("Volume Expansion", func() {
+		It("should expand encrypted volume", func() {
+			ctx := context.Background()
+
+			By("Creating encrypted StorageClass")
+			scName := "tns-csi-smb-encrypted-expand"
+			err := f.K8s.CreateStorageClassWithParams(ctx, scName, "tns.csi.io", smbParams(f))
+			Expect(err).NotTo(HaveOccurred())
+			f.Cleanup.Add(func() error {
+				return f.K8s.DeleteStorageClass(ctx, scName)
+			})
+
+			By("Creating PVC")
+			pvc, err := f.CreatePVC(ctx, framework.PVCOptions{
+				Name:             "encrypted-smb-expand",
+				StorageClassName: scName,
+				Size:             "1Gi",
+				AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Waiting for PVC to be bound")
+			err = f.K8s.WaitForPVCBound(ctx, pvc.Name, pvcTimeout)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Creating POD")
+			pod, err := f.CreatePod(ctx, framework.PodOptions{
+				Name:      "encrypted-smb-pod-expand",
+				PVCName:   pvc.Name,
+				MountPath: "/data",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			err = f.K8s.WaitForPodReady(ctx, pod.Name, podTimeout)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Writing initial data")
+			testData := "Data before expansion"
+			_, err = f.K8s.ExecInPod(ctx, pod.Name, []string{
+				"sh", "-c", fmt.Sprintf("echo '%s' > /data/test.txt && sync", testData),
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Expanding PVC to 3Gi")
+			err = f.K8s.ExpandPVC(ctx, pvc.Name, "3Gi")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Waiting for expansion to complete")
+			Eventually(func() string {
+				capacity, _ := f.K8s.GetPVCCapacity(ctx, pvc.Name)
+				return capacity
+			}, 2*time.Minute, 5*time.Second).Should(Equal("3Gi"))
+
+			By("Verifying data after expansion")
+			output, err := f.K8s.ExecInPod(ctx, pod.Name, []string{"cat", "/data/test.txt"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal(testData))
+
+			By("Writing large file to expanded space")
+			_, err = f.K8s.ExecInPod(ctx, pod.Name, []string{
+				"sh", "-c", "dd if=/dev/zero of=/data/bigfile bs=1M count=100 2>/dev/null && sync",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			output, err = f.K8s.ExecInPod(ctx, pod.Name, []string{"ls", "-la", "/data/bigfile"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("bigfile"))
+		})
+	})
+
+	Context("Snapshots", func() {
+		It("should create snapshot from encrypted volume and restore", func() {
+			ctx := context.Background()
+
+			By("Creating encrypted StorageClass")
+			scName := "tns-csi-smb-encrypted-snapshot"
+			err := f.K8s.CreateStorageClassWithParams(ctx, scName, "tns.csi.io", smbParams(f))
+			Expect(err).NotTo(HaveOccurred())
+			f.Cleanup.Add(func() error {
+				return f.K8s.DeleteStorageClass(ctx, scName)
+			})
+
+			By("Creating VolumeSnapshotClass")
+			snapshotClass := "tns-csi-smb-encrypted-snapshot-class"
+			err = f.K8s.CreateVolumeSnapshotClass(ctx, snapshotClass, "tns.csi.io", "Delete")
+			Expect(err).NotTo(HaveOccurred())
+			f.Cleanup.Add(func() error {
+				return f.K8s.DeleteVolumeSnapshotClass(context.Background(), snapshotClass)
+			})
+
+			By("Creating source PVC")
+			pvc, err := f.CreatePVC(ctx, framework.PVCOptions{
+				Name:             "encrypted-smb-snapshot-source",
+				StorageClassName: scName,
+				Size:             "1Gi",
+				AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Waiting for PVC to be bound")
+			err = f.K8s.WaitForPVCBound(ctx, pvc.Name, pvcTimeout)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Creating POD and writing data")
+			pod, err := f.CreatePod(ctx, framework.PodOptions{
+				Name:      "encrypted-smb-snapshot-pod",
+				PVCName:   pvc.Name,
+				MountPath: "/data",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			err = f.K8s.WaitForPodReady(ctx, pod.Name, podTimeout)
+			Expect(err).NotTo(HaveOccurred())
+
+			testData := "SMB Snapshot Test Data"
+			_, err = f.K8s.ExecInPod(ctx, pod.Name, []string{
+				"sh", "-c", fmt.Sprintf("echo '%s' > /data/snapshot-test.txt && sync", testData),
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Creating snapshot")
+			snapshotName := "encrypted-smb-snapshot"
+			err = f.K8s.CreateVolumeSnapshot(ctx, snapshotName, pvc.Name, snapshotClass)
+			Expect(err).NotTo(HaveOccurred())
+			f.Cleanup.Add(func() error {
+				return f.K8s.DeleteVolumeSnapshot(context.Background(), snapshotName)
+			})
+
+			By("Waiting for snapshot to be ready")
+			err = f.K8s.WaitForSnapshotReady(ctx, snapshotName, 3*time.Minute)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Creating restored PVC from snapshot")
+			restoredPVCName := "encrypted-smb-restored"
+			err = f.K8s.CreatePVCFromSnapshot(ctx, restoredPVCName, snapshotName, scName, "1Gi",
+				[]corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany})
+			Expect(err).NotTo(HaveOccurred())
+			f.RegisterPVCCleanup(restoredPVCName)
+
+			By("Waiting for restored PVC to be bound")
+			err = f.K8s.WaitForPVCBound(ctx, restoredPVCName, pvcTimeout)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Creating POD to verify restored data")
+			restoredPod, err := f.CreatePod(ctx, framework.PodOptions{
+				Name:      "encrypted-smb-restored-pod",
+				PVCName:   restoredPVCName,
+				MountPath: "/data",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			err = f.K8s.WaitForPodReady(ctx, restoredPod.Name, podTimeout)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying restored data")
+			output, err := f.K8s.ExecInPod(ctx, restoredPod.Name, []string{"cat", "/data/snapshot-test.txt"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal(testData))
+		})
+	})
+
+	Context("Volume Cloning", func() {
+		It("should clone encrypted volume", func() {
+			ctx := context.Background()
+
+			By("Creating encrypted StorageClass")
+			scName := "tns-csi-smb-encrypted-clone"
+			err := f.K8s.CreateStorageClassWithParams(ctx, scName, "tns.csi.io", smbParams(f))
+			Expect(err).NotTo(HaveOccurred())
+			f.Cleanup.Add(func() error {
+				return f.K8s.DeleteStorageClass(ctx, scName)
+			})
+
+			By("Creating source PVC")
+			sourcePVC, err := f.CreatePVC(ctx, framework.PVCOptions{
+				Name:             "encrypted-smb-clone-source",
+				StorageClassName: scName,
+				Size:             "1Gi",
+				AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Waiting for source PVC to be bound")
+			err = f.K8s.WaitForPVCBound(ctx, sourcePVC.Name, pvcTimeout)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Creating source POD and writing data")
+			sourcePod, err := f.CreatePod(ctx, framework.PodOptions{
+				Name:      "encrypted-smb-clone-source-pod",
+				PVCName:   sourcePVC.Name,
+				MountPath: "/data",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			err = f.K8s.WaitForPodReady(ctx, sourcePod.Name, podTimeout)
+			Expect(err).NotTo(HaveOccurred())
+
+			testData := "Encrypted SMB Clone Source Data"
+			_, err = f.K8s.ExecInPod(ctx, sourcePod.Name, []string{
+				"sh", "-c", fmt.Sprintf("echo '%s' > /data/clone-test.txt && sync", testData),
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Creating clone PVC")
+			clonePVCName := "encrypted-smb-clone"
+			err = f.K8s.CreatePVCFromPVC(ctx, clonePVCName, sourcePVC.Name, scName, "1Gi",
+				[]corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany})
+			Expect(err).NotTo(HaveOccurred())
+			f.RegisterPVCCleanup(clonePVCName)
+
+			By("Waiting for clone PVC to be bound")
+			err = f.K8s.WaitForPVCBound(ctx, clonePVCName, pvcTimeout)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Creating POD to verify cloned data")
+			clonePod, err := f.CreatePod(ctx, framework.PodOptions{
+				Name:      "encrypted-smb-clone-pod",
+				PVCName:   clonePVCName,
+				MountPath: "/data",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			err = f.K8s.WaitForPodReady(ctx, clonePod.Name, podTimeout)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying cloned data")
+			output, err := f.K8s.ExecInPod(ctx, clonePod.Name, []string{"cat", "/data/clone-test.txt"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal(testData))
+
+			By("Verifying clone is independent (write to clone)")
+			_, err = f.K8s.ExecInPod(ctx, clonePod.Name, []string{
+				"sh", "-c", "echo 'Clone Only Data' > /data/clone-only.txt && sync",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying source doesn't have clone data")
+			exists, err := f.K8s.FileExistsInPod(ctx, sourcePod.Name, "/data/clone-only.txt")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(exists).To(BeFalse(), "Clone data should not appear in source")
+		})
+	})
+
+	Context("Persistence", func() {
+		It("should persist data across POD restart", func() {
+			ctx := context.Background()
+
+			By("Creating encrypted StorageClass")
+			scName := "tns-csi-smb-encrypted-persist"
+			err := f.K8s.CreateStorageClassWithParams(ctx, scName, "tns.csi.io", smbParams(f))
+			Expect(err).NotTo(HaveOccurred())
+			f.Cleanup.Add(func() error {
+				return f.K8s.DeleteStorageClass(ctx, scName)
+			})
+
+			By("Creating PVC")
+			pvc, err := f.CreatePVC(ctx, framework.PVCOptions{
+				Name:             "encrypted-smb-persist",
+				StorageClassName: scName,
+				Size:             "1Gi",
+				AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Waiting for PVC to be bound")
+			err = f.K8s.WaitForPVCBound(ctx, pvc.Name, pvcTimeout)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Creating first POD and writing data")
+			pod1, err := f.CreatePod(ctx, framework.PodOptions{
+				Name:      "encrypted-smb-persist-pod1",
+				PVCName:   pvc.Name,
+				MountPath: "/data",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			err = f.K8s.WaitForPodReady(ctx, pod1.Name, podTimeout)
+			Expect(err).NotTo(HaveOccurred())
+
+			testData := "Persistent Encrypted SMB Data"
+			_, err = f.K8s.ExecInPod(ctx, pod1.Name, []string{
+				"sh", "-c", fmt.Sprintf("echo '%s' > /data/persist.txt && sync", testData),
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Deleting first POD")
+			err = f.K8s.DeletePod(ctx, pod1.Name)
+			Expect(err).NotTo(HaveOccurred())
+			err = f.K8s.WaitForPodDeleted(ctx, pod1.Name, podTimeout)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Creating second POD")
+			pod2, err := f.CreatePod(ctx, framework.PodOptions{
+				Name:      "encrypted-smb-persist-pod2",
+				PVCName:   pvc.Name,
+				MountPath: "/data",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			err = f.K8s.WaitForPodReady(ctx, pod2.Name, podTimeout)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying data persisted")
+			output, err := f.K8s.ExecInPod(ctx, pod2.Name, []string{"cat", "/data/persist.txt"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal(testData))
+		})
+	})
+})

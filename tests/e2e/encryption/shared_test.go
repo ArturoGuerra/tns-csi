@@ -105,6 +105,8 @@ var _ = Describe("Shared Encryption", func() {
 					"pool":                  f.Config.TrueNASPool,
 					"encryption":            "true",
 					"encryptionGenerateKey": "true",
+					"csi.storage.k8s.io/node-stage-secret-name":      "tns-csi-smb-creds",
+					"csi.storage.k8s.io/node-stage-secret-namespace": "kube-system",
 				},
 			})
 		}

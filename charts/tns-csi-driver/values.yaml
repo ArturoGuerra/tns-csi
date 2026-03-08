@@ -602,6 +602,12 @@ rbac:
   # Create RBAC resources
   create: true
 
+# OpenShift support
+# Enable this when deploying on OpenShift to create the required
+# SecurityContextConstraints for the node DaemonSet.
+openshift:
+  enabled: false
+
 # Custom labels to add to all resources
 customLabels: {}
 
