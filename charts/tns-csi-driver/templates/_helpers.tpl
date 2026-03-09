@@ -256,7 +256,13 @@ parameters:
   {{- end }}
   {{- if $sc.parameters }}
   {{- range $key, $value := $sc.parameters }}
+  {{- if kindIs "map" $value }}
+  {{- range $subKey, $subValue := $value }}
+  {{ $key }}.{{ $subKey }}: {{ $subValue | quote }}
+  {{- end }}
+  {{- else }}
   {{ $key }}: {{ $value | quote }}
+  {{- end }}
   {{- end }}
   {{- end }}
 allowVolumeExpansion: {{ $sc.allowVolumeExpansion | default true }}

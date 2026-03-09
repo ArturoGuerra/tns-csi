@@ -414,11 +414,15 @@ storageClasses:
     #
     # Additional parameters (ZFS properties, NVMe-oF-specific, etc.)
     # Available parameters:
+    #   zfs.sparse: Thin provisioning for ZVOLs (e.g., "true", "false")
     #   zfs.compression: ZFS compression algorithm (e.g., "lz4", "zstd", "off")
     #   zfs.dedup: ZFS deduplication (e.g., "on", "off", "verify")
     #   zfs.sync: Sync writes (e.g., "standard", "always", "disabled")
     #   zfs.volblocksize: ZVOL block size (e.g., "16K", "64K")
     #   portID: TrueNAS NVMe-oF port ID (auto-detected if not specified)
+    # Parameters can be specified flat or nested:
+    #   Flat:   { "zfs.sparse": "true", "zfs.compression": "lz4" }
+    #   Nested: { zfs: { sparse: "true", compression: "lz4" } }
     parameters: {}
 
   # iSCSI storage class (requires open-iscsi on nodes)
@@ -486,10 +490,14 @@ storageClasses:
     #
     # Additional parameters (ZFS properties, etc.)
     # Available parameters:
+    #   zfs.sparse: Thin provisioning for ZVOLs (e.g., "true", "false")
     #   zfs.compression: ZFS compression algorithm (e.g., "lz4", "zstd", "off")
     #   zfs.dedup: ZFS deduplication (e.g., "on", "off", "verify")
     #   zfs.sync: Sync writes (e.g., "standard", "always", "disabled")
     #   zfs.volblocksize: ZVOL block size (e.g., "16K", "64K")
+    # Parameters can be specified flat or nested:
+    #   Flat:   { "zfs.sparse": "true", "zfs.compression": "lz4" }
+    #   Nested: { zfs: { sparse: "true", compression: "lz4" } }
     parameters: {}
 
   # SMB/CIFS storage class (requires cifs-utils on nodes)
@@ -537,7 +545,10 @@ storageClasses:
       name: ""
       # Namespace of the Secret (defaults to release namespace)
       namespace: ""
-    # Additional parameters
+    # Additional parameters (ZFS properties, etc.)
+    # Parameters can be specified flat or nested:
+    #   Flat:   { "zfs.compression": "lz4" }
+    #   Nested: { zfs: { compression: "lz4" } }
     parameters: {}
 
   # To add more storage classes, simply add more entries to this list:
