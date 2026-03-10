@@ -3,6 +3,7 @@ package snapclone
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -107,10 +108,25 @@ var _ = Describe("Complex Cleanup", func() {
 					beforeSnap = f.TrueNAS.SnapshotResources(ctx, f.Config.TrueNASPool)
 				}
 
-				// Record PV names before manual cleanup
+				// Record PV names and dataset paths before manual cleanup
 				srcPVName := getPVNameForPVC(ctx, f, srcPVC)
 				restPVName := getPVNameForPVC(ctx, f, restPVC)
 				clonePVName := getPVNameForPVC(ctx, f, clonePVC)
+
+				// Map PV → dataset path for diagnostics
+				datasetRoles := map[string]string{}
+				srcDS, _ := f.K8s.GetVolumeHandle(ctx, srcPVName)
+				if srcDS != "" {
+					datasetRoles[srcDS] = "source"
+				}
+				restDS, _ := f.K8s.GetVolumeHandle(ctx, restPVName)
+				if restDS != "" {
+					datasetRoles[restDS] = "restored"
+				}
+				cloneDS, _ := f.K8s.GetVolumeHandle(ctx, clonePVName)
+				if cloneDS != "" {
+					datasetRoles[cloneDS] = "clone"
+				}
 
 				// Manual cleanup in dependency order:
 				// 1. Delete all pods first
@@ -155,7 +171,36 @@ var _ = Describe("Complex Cleanup", func() {
 					// Verify no new resources were leaked (after should have <= before)
 					for dsName := range afterSnap.Datasets {
 						if _, existed := beforeSnap.Datasets[dsName]; !existed {
-							Fail("Leaked dataset after cleanup: " + dsName)
+							role := datasetRoles[dsName]
+							if role == "" {
+								role = "unknown"
+							}
+							var diag strings.Builder
+							fmt.Fprintf(&diag, "Leaked dataset after cleanup: %s (role: %s)", dsName, role)
+
+							// Query properties for diagnostics
+							for _, prop := range []string{"tns-csi:csi_volume_name", "tns-csi:protocol", "tns-csi:origin_snapshot", "tns-csi:clone_mode", "tns-csi:content_source_type"} {
+								if val, propErr := f.TrueNAS.GetDatasetProperty(ctx, dsName, prop); propErr == nil && val != "" {
+									fmt.Fprintf(&diag, "\n  %s = %s", prop, val)
+								}
+							}
+
+							// Check ZFS origin (is it a clone?)
+							if origin, originErr := f.TrueNAS.GetDatasetOrigin(ctx, dsName); originErr == nil && origin != "" {
+								fmt.Fprintf(&diag, "\n  ZFS origin = %s", origin)
+							}
+
+							// Check for snapshots on the leaked dataset
+							if snaps, snapErr := f.TrueNAS.Client().QuerySnapshots(ctx, []interface{}{
+								[]interface{}{"dataset", "=", dsName},
+							}); snapErr == nil {
+								fmt.Fprintf(&diag, "\n  Snapshots on dataset: %d", len(snaps))
+								for _, s := range snaps {
+									fmt.Fprintf(&diag, "\n    - %s (dataset=%s)", s.ID, s.Dataset)
+								}
+							}
+
+							Fail(diag.String())
 						}
 					}
 					for share := range afterSnap.NFSShares {
